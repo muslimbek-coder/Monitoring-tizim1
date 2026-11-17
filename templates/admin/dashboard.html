@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<title>Admin panel — Monitoring tizimi</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <strong>Monitoring tizimi — Admin panel</strong>
+  <a href="logout">Chiqish</a>
+</header>
+
+<main class="admin-grid">
+
+  <section class="card">
+    <h3>1. O'quvchilar ro'yxati (Excel)</h3>
+    <p class="muted">Jami o'quvchilar: {{ student_count }}</p>
+    <form method="post" action="students/import" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".xlsx,.xls" required>
+      <button type="submit">Import qilish</button>
+    </form>
+    <p class="muted">Format: 1-ustun — sinfi (masalan 7), 2-ustun — F.I.Sh</p>
+  </section>
+
+  <section class="card">
+    <h3>2. Fanlar va test banki</h3>
+    <form method="post" action="subjects/create">
+      <input type="text" name="name" placeholder="Fan nomi (masalan: Matematika)" required>
+      <button type="submit">Fan qo'shish</button>
+    </form>
+    <table class="simple-table">
+      <tr><th>Fan</th><th>Test import qilish (.docx / .txt)</th></tr>
+      {% for s in subjects %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td>
+          <form method="post" action="subjects/{{ s.id }}/import-questions" enctype="multipart/form-data">
+            <input type="file" name="file" accept=".docx,.txt" required>
+            <button type="submit">Import</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="muted">Format: savol <code>#</code> bilan, variantlar <code>-</code> bilan boshlanadi,
+       to'g'ri variant oldiga <code>*</code> qo'yiladi. Masalan:<br>
+       <code># Toshkent qachon poytaxt bo'ldi?</code><br>
+       <code>- 1917</code><br>
+       <code>*- 1930</code><br>
+       <code>- 1941</code></p>
+  </section>
+
+  <section class="card wide">
+    <h3>3. Sinf / Chorak / Blok sozlamalari</h3>
+    <form method="post" action="blocks/save" class="block-form">
+      <label>Sinf (1-11)<input type="number" name="sinf" min="1" max="11" required></label>
+      <label>Chorak (1-4)<input type="number" name="chorak" min="1" max="4" required></label>
+      <label>Blok (1-3)<input type="number" name="blok" min="1" max="3" required></label>
+      <label>1-fan
+        <select name="subject1_id" required>
+          {% for s in subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>2-fan
+        <select name="subject2_id" required>
+          {% for s in subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>3-fan
+        <select name="subject3_id" required>
+          {% for s in subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Kirish kodi<input type="text" name="entry_code" required></label>
+      <label>Mas'ul shaxs F.I.Sh<input type="text" name="responsible_name"></label>
+      <label class="checkbox"><input type="checkbox" name="is_open"> O'quvchilarga ochiq</label>
+      <button type="submit">Saqlash</button>
+    </form>
+
+    <table class="simple-table">
+      <tr><th>Sinf</th><th>Chorak</th><th>Blok</th><th>Fanlar</th><th>Mas'ul</th><th>Ochiqmi</th><th>Natijalar</th></tr>
+      {% for b in blocks %}
+      <tr>
+        <td>{{ b.sinf }}</td><td>{{ b.chorak }}</td><td>{{ b.blok }}</td>
+        <td>{{ b.s1n }}, {{ b.s2n }}, {{ b.s3n }}</td>
+        <td>{{ b.responsible_name }}</td>
+        <td>{{ "Ha" if b.is_open else "Yo'q" }}</td>
+        <td><a href="blocks/{{ b.id }}/export">Excelga yuklash</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+  </section>
+
+</main>
+</body>
+</html>

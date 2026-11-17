@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<title>Admin kirish — Monitoring tizimi</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="centered-page">
+  <form class="card" method="post">
+    <h2>Admin panelga kirish</h2>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <label>Login</label>
+    <input type="text" name="username" required autofocus>
+    <label>Parol</label>
+    <input type="password" name="password" required>
+    <button type="submit">Kirish</button>
+  </form>
+</body>
+</html>
