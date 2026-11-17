@@ -126,23 +126,37 @@
 
   finishBtn.addEventListener("click", finishExam);
 
-  // --- Skrinshotga qarshi, FAQAT YORDAMCHI choralar (to'liq kafolat bermaydi) ---
+  // Brauzer OS darajasidagi skrinshotni to'liq to'sa olmaydi; fokus yo'qolganda sahifani berkitamiz.
   document.addEventListener("copy", (e) => e.preventDefault());
   document.addEventListener("keydown", (e) => {
     if (e.key === "PrintScreen" || (e.ctrlKey && e.key === "p")) {
       e.preventDefault();
-      flashWarning();
+      concealExam();
     }
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) flashWarning();
+    if (document.hidden) concealExam();
+    else restoreExam();
   });
-  window.addEventListener("blur", flashWarning);
+  window.addEventListener("blur", concealExam);
+  window.addEventListener("focus", restoreExam);
 
-  function flashWarning() {
+  let restoreTimer;
+  function concealExam() {
+    clearTimeout(restoreTimer);
+    document.getElementById("privacy-screen").classList.remove("hidden");
     const w = document.getElementById("focus-warning");
     w.classList.remove("hidden");
-    setTimeout(() => w.classList.add("hidden"), 3000);
+  }
+
+  function restoreExam() {
+    clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(() => {
+      if (!document.hidden && document.hasFocus()) {
+        document.getElementById("privacy-screen").classList.add("hidden");
+        document.getElementById("focus-warning").classList.add("hidden");
+      }
+    }, 700);
   }
 
   loadExam();

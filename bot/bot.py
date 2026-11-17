@@ -65,28 +65,6 @@ router = Router()
 
 
 # ==================================================
-# VILOYATLAR
-# ==================================================
-
-VILOYATLAR = [
-    "Qoraqalpog'iston Respublikasi",
-    "Andijon",
-    "Buxoro",
-    "Farg'ona",
-    "Jizzax",
-    "Xorazm",
-    "Namangan",
-    "Navoiy",
-    "Qashqadaryo",
-    "Samarqand",
-    "Sirdaryo",
-    "Surxondaryo",
-    "Toshkent viloyati",
-    "Toshkent shahri",
-]
-
-
-# ==================================================
 # FOYDALANUVCHI HOLATLARI
 # ==================================================
 
@@ -102,18 +80,55 @@ class Reg(StatesGroup):
 # KLAVIATURALAR
 # ==================================================
 
-def viloyat_keyboard() -> InlineKeyboardMarkup:
+def location_keyboard(items, callback_prefix: str) -> InlineKeyboardMarkup:
     rows = [
-        [
-            InlineKeyboardButton(
-                text=viloyat,
-                callback_data=f"vil:{index}",
-            )
-        ]
-        for index, viloyat in enumerate(VILOYATLAR)
+        [InlineKeyboardButton(text=item["name"], callback_data=f"{callback_prefix}:{item['id']}")]
+        for item in items
     ]
-
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_location_options(level: str, viloyat: str = "", tuman: str = ""):
+    conn = get_conn()
+    try:
+        if level == "vil":
+            rows = conn.execute(
+                """
+                SELECT MIN(id) AS id, viloyat AS name
+                FROM school_locations GROUP BY viloyat ORDER BY viloyat
+                """
+            ).fetchall()
+        elif level == "tum":
+            rows = conn.execute(
+                """
+                SELECT MIN(id) AS id, tuman AS name
+                FROM school_locations WHERE viloyat = ?
+                GROUP BY tuman ORDER BY tuman
+                """,
+                (viloyat,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, maktab AS name FROM school_locations
+                WHERE viloyat = ? AND tuman = ? ORDER BY maktab
+                """,
+                (viloyat, tuman),
+            ).fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+def get_location_by_id(location_id: int):
+    conn = get_conn()
+    try:
+        return conn.execute(
+            "SELECT viloyat, tuman, maktab FROM school_locations WHERE id = ?",
+            (location_id,),
+        ).fetchone()
+    finally:
+        conn.close()
 
 
 # ==================================================
@@ -123,12 +138,19 @@ def viloyat_keyboard() -> InlineKeyboardMarkup:
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext):
     await state.clear()
+    locations = get_location_options("vil")
+    if not locations:
+        await message.answer(
+            "Hozircha botda tanlash uchun hududlar yo'q. "
+            "Iltimos, maktab ma'muriyatiga murojaat qiling."
+        )
+        return
 
     await message.answer(
         "Assalomu alaykum!\n"
         "Monitoring tizimi natijalari botiga xush kelibsiz.\n\n"
         "Viloyatingizni tanlang:",
-        reply_markup=viloyat_keyboard(),
+        reply_markup=location_keyboard(locations, "vil"),
     )
 
     await state.set_state(Reg.viloyat)
@@ -161,11 +183,10 @@ async def viloyat_chosen(
     state: FSMContext,
 ):
     try:
-        idx = int(callback.data.split(":")[1])
-
-        if idx < 0 or idx >= len(VILOYATLAR):
+        location_id = int(callback.data.split(":")[1])
+        location = get_location_by_id(location_id)
+        if not location:
             raise ValueError
-
     except (ValueError, IndexError):
         await callback.answer(
             "Noto'g'ri viloyat tanlandi.",
@@ -174,11 +195,13 @@ async def viloyat_chosen(
         return
 
     await state.update_data(
-        viloyat=VILOYATLAR[idx]
+        viloyat=location["viloyat"]
     )
 
+    districts = get_location_options("tum", viloyat=location["viloyat"])
     await callback.message.answer(
-        "Tumaningiz nomini kiriting:"
+        "Tumaningizni tanlang:",
+        reply_markup=location_keyboard(districts, "tum"),
     )
 
     await state.set_state(Reg.tuman)
@@ -186,52 +209,69 @@ async def viloyat_chosen(
 
 
 # ==================================================
-# TUMAN KIRITISH
+# TUMAN TANLASH
 # ==================================================
 
-@router.message(Reg.tuman)
-async def tuman_entered(
-    message: Message,
+@router.callback_query(Reg.tuman, F.data.startswith("tum:"))
+async def tuman_chosen(
+    callback: CallbackQuery,
     state: FSMContext,
 ):
-    if not message.text or not message.text.strip():
-        await message.answer("Iltimos, tuman nomini matn bilan kiriting.")
+    try:
+        location_id = int(callback.data.split(":")[1])
+        location = get_location_by_id(location_id)
+        data = await state.get_data()
+        if not location or location["viloyat"] != data.get("viloyat"):
+            raise ValueError
+    except (ValueError, IndexError):
+        await callback.answer("Noto'g'ri tuman tanlandi.", show_alert=True)
         return
 
-    await state.update_data(
-        tuman=message.text.strip()
+    await state.update_data(tuman=location["tuman"])
+    schools = get_location_options(
+        "maktab", viloyat=location["viloyat"], tuman=location["tuman"]
     )
 
-    await message.answer(
-        "Maktabingiz nomini yoki raqamini kiriting:"
+    await callback.message.answer(
+        "Maktabingizni tanlang:",
+        reply_markup=location_keyboard(schools, "mak"),
     )
-
     await state.set_state(Reg.maktab)
+    await callback.answer()
 
 
 # ==================================================
-# MAKTAB KIRITISH
+# MAKTAB TANLASH
 # ==================================================
 
-@router.message(Reg.maktab)
-async def maktab_entered(
-    message: Message,
+@router.callback_query(Reg.maktab, F.data.startswith("mak:"))
+async def maktab_chosen(
+    callback: CallbackQuery,
     state: FSMContext,
 ):
-    if not message.text or not message.text.strip():
-        await message.answer("Iltimos, maktab nomini kiriting.")
+    try:
+        location_id = int(callback.data.split(":")[1])
+        location = get_location_by_id(location_id)
+        data = await state.get_data()
+        if (
+            not location
+            or location["viloyat"] != data.get("viloyat")
+            or location["tuman"] != data.get("tuman")
+        ):
+            raise ValueError
+    except (ValueError, IndexError):
+        await callback.answer("Noto'g'ri maktab tanlandi.", show_alert=True)
         return
 
-    await state.update_data(
-        maktab=message.text.strip()
-    )
+    await state.update_data(maktab=location["maktab"])
 
-    await message.answer(
-        "Loginni kiriting (Ism Familiyangiz, "
-        "tizimdagi ro'yxatdagidek):"
+    await callback.message.answer(
+        "Test yakunida berilgan qisqa loginni yoki "
+        "F.I.Sh.ni kiriting:"
     )
 
     await state.set_state(Reg.login)
+    await callback.answer()
 
 
 # ==================================================
@@ -291,14 +331,17 @@ async def sinf_entered(
         conn = get_conn()
 
         # O'quvchini tekshirish
-        student = conn.execute(
-            """
-            SELECT *
-            FROM students
-            WHERE fish = ? AND sinf = ?
-            """,
-            (fish, sinf),
-        ).fetchone()
+        student = None
+        if fish and fish[:1].lower() == "o" and fish[1:].isdigit():
+            student = conn.execute(
+                "SELECT * FROM students WHERE id = ? AND sinf = ?",
+                (int(fish[1:]), sinf),
+            ).fetchone()
+        if not student:
+            student = conn.execute(
+                "SELECT * FROM students WHERE fish = ? AND sinf = ?",
+                (fish, sinf),
+            ).fetchone()
 
         if not student:
             await message.answer(

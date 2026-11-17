@@ -1,5 +1,6 @@
 
 from pathlib import Path
+import sqlite3
 
 from fastapi import (
     APIRouter,
@@ -157,6 +158,18 @@ def dashboard(request: Request):
             "SELECT COUNT(*) AS c FROM students"
         ).fetchone()["c"]
 
+        admins = conn.execute(
+            "SELECT id, username FROM admin_users ORDER BY username"
+        ).fetchall()
+
+        locations = conn.execute(
+            """
+            SELECT viloyat, tuman, maktab
+            FROM school_locations
+            ORDER BY viloyat, tuman, maktab
+            """
+        ).fetchall()
+
     finally:
         conn.close()
 
@@ -167,7 +180,93 @@ def dashboard(request: Request):
             "subjects": subjects,
             "blocks": blocks,
             "student_count": student_count,
+            "admins": admins,
+            "locations": locations,
+            "error": request.query_params.get("error"),
+            "notice": request.query_params.get("notice"),
         },
+    )
+
+
+@router.post("/admins/create")
+def admin_create(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+):
+    base = str(request.url).split("/admins/create")[0]
+    redirect = _require_admin_or_redirect(request, base + "/login")
+    if redirect:
+        return redirect
+
+    username = username.strip()
+    if not 3 <= len(username) <= 32 or not username.replace("_", "").isalnum():
+        return RedirectResponse(
+            url=base + "/dashboard?error=Login%203-32%20ta%20harf%20yoki%20raqamdan%20iborat%20bo%27lsin",
+            status_code=303,
+        )
+    if len(password) < 6:
+        return RedirectResponse(
+            url=base + "/dashboard?error=Parol%20kamida%206%20ta%20belgi%20bo%27lsin",
+            status_code=303,
+        )
+
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
+            (username, hash_password(password)),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        return RedirectResponse(
+            url=base + "/dashboard?error=Bu%20login%20allaqachon%20mavjud",
+            status_code=303,
+        )
+    finally:
+        conn.close()
+
+    return RedirectResponse(
+        url=base + "/dashboard?notice=Mas%27ul%20admin%20qo%27shildi",
+        status_code=303,
+    )
+
+
+@router.post("/locations/create")
+def location_create(
+    request: Request,
+    viloyat: str = Form(...),
+    tuman: str = Form(...),
+    maktab: str = Form(...),
+):
+    base = str(request.url).split("/locations/create")[0]
+    redirect = _require_admin_or_redirect(request, base + "/login")
+    if redirect:
+        return redirect
+
+    values = [viloyat.strip(), tuman.strip(), maktab.strip()]
+    if any(not value or len(value) > 64 for value in values):
+        return RedirectResponse(
+            url=base + "/dashboard?error=Viloyat%2C%20tuman%20va%20maktab%20nomlarini%20to%27g%27ri%20kiriting",
+            status_code=303,
+        )
+
+    conn = get_conn()
+    try:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO school_locations (viloyat, tuman, maktab)
+            VALUES (?, ?, ?)
+            """,
+            values,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return RedirectResponse(
+        url=base + "/dashboard?notice=Hudud%20va%20maktab%20saqlandi",
+        status_code=303,
     )
 
 

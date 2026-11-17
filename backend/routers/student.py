@@ -102,6 +102,6 @@ def exam_finish(session_id: int, request: Request):
     student = conn.execute("SELECT * FROM students WHERE id = ?", (student_id,)).fetchone()
     conn.close()
     request.session.pop("exam_session_id", None)
-    result["login"] = student["fish"] if student else ""
+    result["login"] = f"O{student['id']}" if student else ""
     result["password"] = str(student["sinf"]) if student else ""
     return JSONResponse(result)

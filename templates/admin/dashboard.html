@@ -7,14 +7,42 @@
 </head>
 <body>
 <header class="topbar">
-  <strong>Monitoring tizimi — Admin panel</strong>
+  <div class="brand"><span class="brand-mark">M</span><strong>Monitoring <span>tizimi</span></strong></div>
+  <span class="topbar-caption">Boshqaruv paneli</span>
   <a href="logout">Chiqish</a>
 </header>
 
 <main class="admin-grid">
+  {% if error %}<p class="notice error-banner">{{ error }}</p>{% endif %}
+  {% if notice %}<p class="notice success-banner">{{ notice }}</p>{% endif %}
 
   <section class="card">
-    <h3>1. O'quvchilar ro'yxati (Excel)</h3>
+    <div class="section-heading"><span class="section-number">01</span><div><h3>Mas'ul adminlar</h3><p class="muted">Boshqaruv paneliga kirish huquqiga ega hisoblar</p></div></div>
+    <form method="post" action="admins/create" class="stack-form">
+      <label>Yangi admin login<input type="text" name="username" minlength="3" maxlength="32" required placeholder="masalan: masul_admin"></label>
+      <label>Parol<input type="password" name="password" minlength="6" required placeholder="Kamida 6 ta belgi"></label>
+      <button type="submit">Mas'ul admin qo'shish</button>
+    </form>
+    <div class="admin-list">
+      {% for a in admins %}<span class="admin-chip">{{ a.username }}{% if a.username == "admin" %} <small>(asosiy)</small>{% endif %}</span>{% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-heading"><span class="section-number">02</span><div><h3>Hudud va maktablar</h3><p class="muted">Botda faqat shu yerda kiritilgan manzillar tanlanadi</p></div></div>
+    <form method="post" action="locations/create" class="stack-form">
+      <label>Viloyat<input type="text" name="viloyat" maxlength="64" required placeholder="Masalan: Samarqand viloyati"></label>
+      <label>Tuman yoki shahar<input type="text" name="tuman" maxlength="64" required placeholder="Masalan: Urgut tumani"></label>
+      <label>Maktab<input type="text" name="maktab" maxlength="64" required placeholder="Masalan: 12-maktab"></label>
+      <button type="submit">Hudud va maktab qo'shish</button>
+    </form>
+    <div class="location-list">
+      {% for location in locations %}<div><strong>{{ location.viloyat }}</strong><span>{{ location.tuman }} · {{ location.maktab }}</span></div>{% else %}<p class="muted">Hozircha hudud qo'shilmagan.</p>{% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-heading"><span class="section-number">03</span><div><h3>O'quvchilar ro'yxati</h3><p class="muted">Excel faylidan import qiling</p></div></div>
     <p class="muted">Jami o'quvchilar: {{ student_count }}</p>
     <form method="post" action="students/import" enctype="multipart/form-data">
       <input type="file" name="file" accept=".xlsx,.xls" required>
@@ -24,7 +52,7 @@
   </section>
 
   <section class="card">
-    <h3>2. Fanlar va test banki</h3>
+    <div class="section-heading"><span class="section-number">04</span><div><h3>Fanlar va test banki</h3><p class="muted">Fanlarni va savollarni boshqaring</p></div></div>
     <form method="post" action="subjects/create">
       <input type="text" name="name" placeholder="Fan nomi (masalan: Matematika)" required>
       <button type="submit">Fan qo'shish</button>
@@ -52,7 +80,7 @@
   </section>
 
   <section class="card wide">
-    <h3>3. Sinf / Chorak / Blok sozlamalari</h3>
+    <div class="section-heading"><span class="section-number">05</span><div><h3>Sinf, chorak va blok sozlamalari</h3><p class="muted">Test bloklarini sozlang va o'quvchilarga oching</p></div></div>
     <form method="post" action="blocks/save" class="block-form">
       <label>Sinf (1-11)<input type="number" name="sinf" min="1" max="11" required></label>
       <label>Chorak (1-4)<input type="number" name="chorak" min="1" max="4" required></label>

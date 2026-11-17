@@ -4,6 +4,14 @@ CREATE TABLE IF NOT EXISTS admin_users (
     password_hash TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS school_locations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    viloyat TEXT NOT NULL,
+    tuman TEXT NOT NULL,
+    maktab TEXT NOT NULL,
+    UNIQUE(viloyat, tuman, maktab)
+);
+
 CREATE TABLE IF NOT EXISTS students (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sinf INTEGER NOT NULL,
