@@ -1,3 +1,279 @@
+from datetime import datetime, timezone
+
+import openpyxl
+from openpyxl.styles import Alignment, Font
+from openpyxl.utils import get_column_letter
+
+from .database import get_conn
+
+QUESTIONS_PER_SUBJECT = 15
+EXAM_DURATION_SECONDS = 90 * 60
+
+
+def get_open_blocks_for_class(sinf: int) -> list:
+    """O'quvchi sinfi uchun ochiq bloklarni fan nomlari bilan qaytaradi."""
+    conn = get_conn()
+    try:
+        return conn.execute(
+            """
+            SELECT
+                b.*,
+                s1.name AS s1name,
+                s2.name AS s2name,
+                s3.name AS s3name
+            FROM blocks AS b
+            LEFT JOIN subjects AS s1 ON s1.id = b.subject1_id
+            LEFT JOIN subjects AS s2 ON s2.id = b.subject2_id
+            LEFT JOIN subjects AS s3 ON s3.id = b.subject3_id
+            WHERE b.sinf = ? AND b.is_open = 1
+            ORDER BY b.chorak, b.blok
+            """,
+            (sinf,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def start_session(student_id: int, block_id: int) -> int:
+    """Sessiya yaratib, har bir blok fanidan 15 tadan savol tanlaydi."""
+    conn = get_conn()
+    try:
+        student = conn.execute(
+            "SELECT sinf FROM students WHERE id = ?",
+            (student_id,),
+        ).fetchone()
+        block = conn.execute(
+            "SELECT * FROM blocks WHERE id = ? AND is_open = 1",
+            (block_id,),
+        ).fetchone()
+        if not student or not block or student["sinf"] != block["sinf"]:
+            raise ValueError("O'quvchi yoki ochiq test bloki topilmadi.")
+
+        subject_ids = [
+            block["subject1_id"],
+            block["subject2_id"],
+            block["subject3_id"],
+        ]
+        if any(subject_id is None for subject_id in subject_ids):
+            raise ValueError("Test blokida uchta fan to'liq sozlanmagan.")
+
+        questions_by_subject = []
+        for subject_id in subject_ids:
+            questions = conn.execute(
+                """
+                SELECT id FROM questions
+                WHERE subject_id = ?
+                ORDER BY RANDOM()
+                LIMIT ?
+                """,
+                (subject_id, QUESTIONS_PER_SUBJECT),
+            ).fetchall()
+            if len(questions) < QUESTIONS_PER_SUBJECT:
+                raise ValueError(
+                    "Har bir fan uchun kamida 15 ta test savoli bo'lishi kerak."
+                )
+            questions_by_subject.append((subject_id, questions))
+
+        started_at = datetime.now(timezone.utc).isoformat()
+        cursor = conn.execute(
+            """
+            INSERT INTO sessions (student_id, block_id, started_at)
+            VALUES (?, ?, ?)
+            """,
+            (student_id, block_id, started_at),
+        )
+        session_id = cursor.lastrowid
+
+        for subject_id, questions in questions_by_subject:
+            conn.executemany(
+                """
+                INSERT INTO session_questions
+                    (session_id, question_id, subject_id, position_in_subject)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (session_id, question["id"], subject_id, position)
+                    for position, question in enumerate(questions, start=1)
+                ],
+            )
+
+        conn.commit()
+        return session_id
+    finally:
+        conn.close()
+
+
+def get_session_payload(session_id: int) -> dict:
+    """Imtihon sahifasiga savollarni va qolgan vaqtni tayyorlaydi."""
+    conn = get_conn()
+    try:
+        session = conn.execute(
+            "SELECT started_at FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        if not session:
+            raise ValueError("Test sessiyasi topilmadi.")
+
+        started_at = datetime.fromisoformat(session["started_at"])
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()
+        remaining_seconds = max(
+            0,
+            EXAM_DURATION_SECONDS - int(elapsed),
+        )
+
+        questions = conn.execute(
+            """
+            SELECT
+                sq.id AS sq_id,
+                sq.position_in_subject,
+                sq.selected_option,
+                sub.name AS subject_name,
+                q.question_text,
+                q.option_a,
+                q.option_b,
+                q.option_c,
+                q.option_d
+            FROM session_questions AS sq
+            JOIN questions AS q ON q.id = sq.question_id
+            JOIN subjects AS sub ON sub.id = sq.subject_id
+            WHERE sq.session_id = ?
+            ORDER BY sq.id
+            """,
+            (session_id,),
+        ).fetchall()
+
+        return {
+            "remaining_seconds": remaining_seconds,
+            "questions": [dict(question) for question in questions],
+        }
+    finally:
+        conn.close()
+
+
+def save_answer(session_id: int, session_question_id: int, option: str) -> None:
+    """O'quvchi javobini tekshiradi va saqlaydi."""
+    if option not in ("a", "b", "c", "d"):
+        raise ValueError("Javob varianti noto'g'ri.")
+
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                sess.status,
+                q.correct_option,
+                q.option_a,
+                q.option_b,
+                q.option_c,
+                q.option_d
+            FROM session_questions AS sq
+            JOIN sessions AS sess ON sess.id = sq.session_id
+            JOIN questions AS q ON q.id = sq.question_id
+            WHERE sq.id = ? AND sq.session_id = ?
+            """,
+            (session_question_id, session_id),
+        ).fetchone()
+        if not row:
+            raise ValueError("Savol ushbu test sessiyasiga tegishli emas.")
+        if row["status"] != "started":
+            raise ValueError("Yakunlangan test javoblarini o'zgartirib bo'lmaydi.")
+        if not row[f"option_{option}"]:
+            raise ValueError("Tanlangan javob varianti mavjud emas.")
+
+        conn.execute(
+            """
+            UPDATE session_questions
+            SET selected_option = ?, is_correct = ?
+            WHERE id = ? AND session_id = ?
+            """,
+            (
+                option,
+                int(option == row["correct_option"]),
+                session_question_id,
+                session_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def finish_session(session_id: int) -> dict:
+    """Testni yakunlab, umumiy va fanlar bo'yicha natijalarni qaytaradi."""
+    conn = get_conn()
+    try:
+        session = conn.execute(
+            "SELECT status FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        if not session:
+            raise ValueError("Test sessiyasi topilmadi.")
+
+        if session["status"] == "started":
+            conn.execute(
+                """
+                UPDATE session_questions
+                SET is_correct = CASE
+                    WHEN selected_option IS NOT NULL
+                         AND is_correct = 1 THEN 1
+                    ELSE 0
+                END
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            conn.execute(
+                """
+                UPDATE sessions
+                SET status = 'finished', finished_at = ?
+                WHERE id = ? AND status = 'started'
+                """,
+                (datetime.now(timezone.utc).isoformat(), session_id),
+            )
+            conn.commit()
+
+        per_subject = conn.execute(
+            """
+            SELECT
+                sub.name,
+                COUNT(*) AS total,
+                COALESCE(SUM(sq.is_correct), 0) AS correct
+            FROM session_questions AS sq
+            JOIN subjects AS sub ON sub.id = sq.subject_id
+            WHERE sq.session_id = ?
+            GROUP BY sq.subject_id, sub.name
+            ORDER BY MIN(sq.id)
+            """,
+            (session_id,),
+        ).fetchall()
+
+        subjects = [
+            {
+                "name": item["name"],
+                "correct": item["correct"],
+                "total": item["total"],
+                "percent": round(item["correct"] / item["total"] * 100)
+                if item["total"]
+                else 0,
+            }
+            for item in per_subject
+        ]
+        total_correct = sum(item["correct"] for item in subjects)
+        total_questions = sum(item["total"] for item in subjects)
+        return {
+            "total_correct": total_correct,
+            "total_questions": total_questions,
+            "score_100": round(total_correct / total_questions * 100)
+            if total_questions
+            else 0,
+            "per_subject": subjects,
+        }
+    finally:
+        conn.close()
+
+
 def export_block_results_to_excel(block_id: int) -> bytes:
     """Blok bo'yicha tugatilgan sessiyalarni Excel hisobotiga yig'adi."""
     conn = get_conn()
