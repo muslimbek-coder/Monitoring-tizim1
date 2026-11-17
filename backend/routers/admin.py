@@ -1,78 +1,165 @@
+
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    Request,
+    UploadFile,
+    HTTPException,
+)
+from fastapi.responses import (
+    HTMLResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.templating import Jinja2Templates
 
 from ..database import get_conn
 from ..exam import export_block_results_to_excel
-from ..importers import import_questions_for_subject, import_students_from_excel
+from ..importers import (
+    import_questions_for_subject,
+    import_students_from_excel,
+)
 from ..security import hash_password, verify_password
 
+
 router = APIRouter()
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "admin"
+
+TEMPLATES_DIR = (
+    Path(__file__).resolve().parent.parent.parent
+    / "templates"
+    / "admin"
+)
+
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
 def ensure_default_admin():
-    """Birinchi marta ishga tushganda admin/admin123 bilan boshlang'ich admin yaratadi."""
+    """Birinchi ishga tushganda boshlang'ich admin yaratadi."""
     conn = get_conn()
-    row = conn.execute("SELECT id FROM admin_users LIMIT 1").fetchone()
-    if not row:
-        conn.execute(
-            "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
-            ("admin", hash_password("admin123")),
-        )
-        conn.commit()
-    conn.close()
+
+    try:
+        row = conn.execute(
+            "SELECT id FROM admin_users LIMIT 1"
+        ).fetchone()
+
+        if not row:
+            conn.execute(
+                """
+                INSERT INTO admin_users (username, password_hash)
+                VALUES (?, ?)
+                """,
+                ("admin", hash_password("admin123")),
+            )
+            conn.commit()
+
+    finally:
+        conn.close()
 
 
 def _require_admin_or_redirect(request: Request, login_path: str):
+    """Admin tizimga kirganligini tekshiradi."""
     if not request.session.get("is_admin"):
         return RedirectResponse(login_path)
+
     return None
 
 
 @router.get("/login", response_class=HTMLResponse)
 def login_form(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "error": None,
+        },
+    )
 
 
 @router.post("/login", response_class=HTMLResponse)
-def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM admin_users WHERE username = ?", (username,)).fetchone()
-    conn.close()
+
+    try:
+        row = conn.execute(
+            "SELECT * FROM admin_users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+    finally:
+        conn.close()
+
     if not row or not verify_password(password, row["password_hash"]):
         return templates.TemplateResponse(
-            "login.html", {"request": request, "error": "Login yoki parol noto'g'ri"}
+            "login.html",
+            {
+                "request": request,
+                "error": "Login yoki parol noto'g'ri",
+            },
         )
+
     request.session["is_admin"] = True
-    return RedirectResponse(url=str(request.url).rsplit("/login", 1)[0] + "/dashboard", status_code=302)
+
+    return RedirectResponse(
+        url=str(request.url).rsplit("/login", 1)[0] + "/dashboard",
+        status_code=302,
+    )
 
 
 @router.get("/logout")
 def logout(request: Request):
     request.session.clear()
-    return RedirectResponse(url=str(request.url).rsplit("/logout", 1)[0] + "/login")
+
+    return RedirectResponse(
+        url=str(request.url).rsplit("/logout", 1)[0] + "/login"
+    )
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
-    redirect = _require_admin_or_redirect(request, str(request.url).rsplit("/dashboard", 1)[0] + "/login")
+    redirect = _require_admin_or_redirect(
+        request,
+        str(request.url).rsplit("/dashboard", 1)[0] + "/login",
+    )
+
     if redirect:
         return redirect
+
     conn = get_conn()
-    subjects = conn.execute("SELECT * FROM subjects ORDER BY name").fetchall()
-    blocks = conn.execute(
-        """SELECT b.*, s1.name s1n, s2.name s2n, s3.name s3n FROM blocks b
-           LEFT JOIN subjects s1 ON s1.id=b.subject1_id
-           LEFT JOIN subjects s2 ON s2.id=b.subject2_id
-           LEFT JOIN subjects s3 ON s3.id=b.subject3_id
-           ORDER BY sinf, chorak, blok"""
-    ).fetchall()
-    student_count = conn.execute("SELECT COUNT(*) c FROM students").fetchone()["c"]
-    conn.close()
+
+    try:
+        subjects = conn.execute(
+            "SELECT * FROM subjects ORDER BY name"
+        ).fetchall()
+
+        blocks = conn.execute(
+            """
+            SELECT
+                b.*,
+                s1.name AS s1n,
+                s2.name AS s2n,
+                s3.name AS s3n
+            FROM blocks b
+            LEFT JOIN subjects s1 ON s1.id = b.subject1_id
+            LEFT JOIN subjects s2 ON s2.id = b.subject2_id
+            LEFT JOIN subjects s3 ON s3.id = b.subject3_id
+            ORDER BY sinf, chorak, blok
+            """
+        ).fetchall()
+
+        student_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM students"
+        ).fetchone()["c"]
+
+    finally:
+        conn.close()
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -85,39 +172,99 @@ def dashboard(request: Request):
 
 
 @router.post("/students/import")
-async def students_import(request: Request, file: UploadFile = File(...)):
-    redirect = _require_admin_or_redirect(request, str(request.url).split("/students/import")[0] + "/login")
+async def students_import(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    base = str(request.url).split("/students/import")[0]
+
+    redirect = _require_admin_or_redirect(
+        request,
+        base + "/login",
+    )
+
     if redirect:
         return redirect
+
     content = await file.read()
-    result = import_students_from_excel(content)
-    return RedirectResponse(url=str(request.url).split("/students/import")[0] + "/dashboard", status_code=302)
+
+    import_students_from_excel(content)
+
+    return RedirectResponse(
+        url=base + "/dashboard",
+        status_code=302,
+    )
 
 
 @router.post("/subjects/create")
-def subject_create(request: Request, name: str = Form(...)):
-    redirect = _require_admin_or_redirect(request, str(request.url).split("/subjects/create")[0] + "/login")
+def subject_create(
+    request: Request,
+    name: str = Form(...),
+):
+    base = str(request.url).split("/subjects/create")[0]
+
+    redirect = _require_admin_or_redirect(
+        request,
+        base + "/login",
+    )
+
     if redirect:
         return redirect
+
     conn = get_conn()
+
     try:
-        conn.execute("INSERT INTO subjects (name) VALUES (?)", (name.strip(),))
-        conn.commit()
+        name = name.strip()
+
+        if name:
+            conn.execute(
+                "INSERT INTO subjects (name) VALUES (?)",
+                (name,),
+            )
+            conn.commit()
+
     except Exception:
-        pass
-    conn.close()
-    return RedirectResponse(url=str(request.url).split("/subjects/create")[0] + "/dashboard", status_code=302)
+        conn.rollback()
+
+    finally:
+        conn.close()
+
+    return RedirectResponse(
+        url=base + "/dashboard",
+        status_code=302,
+    )
 
 
 @router.post("/subjects/{subject_id}/import-questions")
-async def subject_import_questions(request: Request, subject_id: int, file: UploadFile = File(...)):
-    base = str(request.url).split(f"/subjects/{subject_id}/import-questions")[0]
-    redirect = _require_admin_or_redirect(request, base + "/login")
+async def subject_import_questions(
+    request: Request,
+    subject_id: int,
+    file: UploadFile = File(...),
+):
+    base = str(request.url).split(
+        f"/subjects/{subject_id}/import-questions"
+    )[0]
+
+    redirect = _require_admin_or_redirect(
+        request,
+        base + "/login",
+    )
+
     if redirect:
         return redirect
+
     content = await file.read()
-    import_questions_for_subject(subject_id, file.filename, content)
-    return RedirectResponse(url=base + "/dashboard", status_code=302)
+
+    import_questions_for_subject(
+        subject_id,
+        file.filename,
+        content,
+    )
+
+    return RedirectResponse(
+        url=base + "/dashboard",
+        status_code=302,
+    )
 
 
 @router.post("/blocks/save")
@@ -134,47 +281,105 @@ def block_save(
     is_open: str = Form(None),
 ):
     base = str(request.url).split("/blocks/save")[0]
-    redirect = _require_admin_or_redirect(request, base + "/login")
+
+    redirect = _require_admin_or_redirect(
+        request,
+        base + "/login",
+    )
+
     if redirect:
         return redirect
+
     conn = get_conn()
-    conn.execute(
-        """INSERT INTO blocks (sinf, chorak, blok, subject1_id, subject2_id, subject3_id,
-                                entry_code, responsible_name, is_open)
-           VALUES (?,?,?,?,?,?,?,?,?)
-           ON CONFLICT(sinf, chorak, blok) DO UPDATE SET
-             subject1_id=excluded.subject1_id,
-             subject2_id=excluded.subject2_id,
-             subject3_id=excluded.subject3_id,
-             entry_code=excluded.entry_code,
-             responsible_name=excluded.responsible_name,
-             is_open=excluded.is_open""",
-        (
-            sinf,
-            chorak,
-            blok,
-            subject1_id,
-            subject2_id,
-            subject3_id,
-            entry_code.strip(),
-            responsible_name.strip(),
-            1 if is_open else 0,
-        ),
+
+    try:
+        conn.execute(
+            """
+            INSERT INTO blocks (
+                sinf,
+                chorak,
+                blok,
+                subject1_id,
+                subject2_id,
+                subject3_id,
+                entry_code,
+                responsible_name,
+                is_open
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+            ON CONFLICT(sinf, chorak, blok)
+            DO UPDATE SET
+                subject1_id = excluded.subject1_id,
+                subject2_id = excluded.subject2_id,
+                subject3_id = excluded.subject3_id,
+                entry_code = excluded.entry_code,
+                responsible_name = excluded.responsible_name,
+                is_open = excluded.is_open
+            """,
+            (
+                sinf,
+                chorak,
+                blok,
+                subject1_id,
+                subject2_id,
+                subject3_id,
+                entry_code.strip(),
+                responsible_name.strip(),
+                1 if is_open else 0,
+            ),
+        )
+
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+    return RedirectResponse(
+        url=base + "/dashboard",
+        status_code=302,
     )
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url=base + "/dashboard", status_code=302)
 
 
 @router.get("/blocks/{block_id}/export")
-def block_export(request: Request, block_id: int):
-    base = str(request.url).split(f"/blocks/{block_id}/export")[0]
-    redirect = _require_admin_or_redirect(request, base + "/login")
+def block_export(
+    request: Request,
+    block_id: int,
+):
+    base = str(request.url).split(
+        f"/blocks/{block_id}/export"
+    )[0]
+
+    redirect = _require_admin_or_redirect(
+        request,
+        base + "/login",
+    )
+
     if redirect:
         return redirect
-    data = export_block_results_to_excel(block_id)
+
+    try:
+        data = export_block_results_to_excel(block_id)
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=str(e),
+        )
+
     return StreamingResponse(
         iter([data]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=natijalar_blok_{block_id}.xlsx"},
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=natijalar_blok_{block_id}.xlsx"
+            )
+        },
     )
