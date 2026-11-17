@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .database import init_db
-from .routers import admin, student
+from .routers import admin, responsible, student
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -28,6 +28,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 #   https://sizning-domen/<ADMIN_SECRET_PATH>/login
 app.include_router(admin.router, prefix=f"/{ADMIN_SECRET_PATH}", tags=["admin"])
 app.include_router(student.router, tags=["student"])
+app.include_router(responsible.router, prefix="/responsible", tags=["responsible"])
 
 
 @app.on_event("startup")

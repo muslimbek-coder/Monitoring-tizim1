@@ -9,6 +9,7 @@
 <header class="topbar">
   <div class="brand"><span class="brand-mark">M</span><strong>Monitoring <span>tizimi</span></strong></div>
   <span class="topbar-caption">Boshqaruv paneli</span>
+  <a href="/responsible/login">Mas'ullar sahifasi</a>
   <a href="logout">Chiqish</a>
 </header>
 
@@ -17,7 +18,7 @@
   {% if notice %}<p class="notice success-banner">{{ notice }}</p>{% endif %}
 
   <section class="card">
-    <div class="section-heading"><span class="section-number">01</span><div><h3>Mas'ul adminlar</h3><p class="muted">Boshqaruv paneliga kirish huquqiga ega hisoblar</p></div></div>
+    <div class="section-heading"><span class="section-number">01</span><div><h3>Admin hisoblari</h3><p class="muted">Boshqaruv paneliga kirish huquqiga ega hisoblar</p></div></div>
     <form method="post" action="admins/create" class="stack-form">
       <label>Yangi admin login<input type="text" name="username" minlength="3" maxlength="32" required placeholder="masalan: masul_admin"></label>
       <label>Parol<input type="password" name="password" minlength="6" required placeholder="Kamida 6 ta belgi"></label>
@@ -29,7 +30,32 @@
   </section>
 
   <section class="card">
-    <div class="section-heading"><span class="section-number">02</span><div><h3>Hudud va maktablar</h3><p class="muted">Botda faqat shu yerda kiritilgan manzillar tanlanadi</p></div></div>
+    <div class="section-heading"><span class="section-number">02</span><div><h3>Natijalarni tekshiruvchi mas'ullar</h3><p class="muted">Har bir mas'ul o'z maktabi natijalarini ko'radi</p></div></div>
+    <form method="post" action="responsibles/create" class="stack-form">
+      <label>Mas'ul F.I.Sh<input type="text" name="full_name" maxlength="100" required placeholder="Mas'ulning ism-familiyasi"></label>
+      <label>Login<input type="text" name="username" minlength="3" maxlength="32" required></label>
+      <label>Parol<input type="password" name="password" minlength="6" required></label>
+      <label>Biriktirilgan maktab
+        <select name="location_id" required>
+          <option value="">Viloyat · tuman · maktab</option>
+          {% for location in locations %}<option value="{{ location.id }}">{{ location.viloyat }} · {{ location.tuman }} · {{ location.maktab }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit">Mas'ul qo'shish</button>
+    </form>
+    <table class="simple-table">
+      <tr><th>Mas'ul</th><th>Login</th><th>Maktab</th></tr>
+      {% for responsible in responsibles %}
+      <tr><td>{{ responsible.full_name }}</td><td>{{ responsible.username }}</td><td>{{ responsible.viloyat }} · {{ responsible.tuman }} · {{ responsible.maktab }}</td></tr>
+      {% else %}
+      <tr><td colspan="3" class="muted">Hozircha mas'ul qo'shilmagan.</td></tr>
+      {% endfor %}
+    </table>
+    <p class="muted">Mas'ullar kirish sahifasi: <a href="/responsible/login">/responsible/login</a></p>
+  </section>
+
+  <section class="card">
+    <div class="section-heading"><span class="section-number">03</span><div><h3>Hudud va maktablar</h3><p class="muted">Bot va o'quvchi sahifasida shu manzillar tanlanadi</p></div></div>
     <form method="post" action="locations/create" class="stack-form">
       <label>Viloyat<input type="text" name="viloyat" maxlength="64" required placeholder="Masalan: Samarqand viloyati"></label>
       <label>Tuman yoki shahar<input type="text" name="tuman" maxlength="64" required placeholder="Masalan: Urgut tumani"></label>
@@ -42,7 +68,7 @@
   </section>
 
   <section class="card">
-    <div class="section-heading"><span class="section-number">03</span><div><h3>O'quvchilar ro'yxati</h3><p class="muted">Excel faylidan import qiling</p></div></div>
+    <div class="section-heading"><span class="section-number">04</span><div><h3>O'quvchilar ro'yxati</h3><p class="muted">Excel faylidan import qiling</p></div></div>
     <p class="muted">Jami o'quvchilar: {{ student_count }}</p>
     <form method="post" action="students/import" enctype="multipart/form-data">
       <label>O'quvchilar qaysi maktabdan?
@@ -60,7 +86,7 @@
   </section>
 
   <section class="card">
-    <div class="section-heading"><span class="section-number">04</span><div><h3>Fanlar va test banki</h3><p class="muted">Fanlarni va savollarni boshqaring</p></div></div>
+    <div class="section-heading"><span class="section-number">05</span><div><h3>Fanlar va test banki</h3><p class="muted">Fanlarni va savollarni boshqaring</p></div></div>
     <form method="post" action="subjects/create">
       <input type="text" name="name" placeholder="Fan nomi (masalan: Matematika)" required>
       <button type="submit">Fan qo'shish</button>
@@ -88,7 +114,30 @@
   </section>
 
   <section class="card wide">
-    <div class="section-heading"><span class="section-number">05</span><div><h3>Sinf, chorak va blok sozlamalari</h3><p class="muted">Test bloklarini sozlang va o'quvchilarga oching</p></div></div>
+    <div class="section-heading"><span class="section-number">06</span><div><h3>Sinf, chorak va blok sozlamalari</h3><p class="muted">Sinf rahbarlarini belgilang va testlarni o'quvchilarga oching</p></div></div>
+    <div class="class-settings">
+      <h4>Sinf rahbarini biriktirish</h4>
+      <form method="post" action="classes/save" class="block-form class-teacher-form">
+        <label>Maktab
+          <select name="location_id" required>
+            <option value="">Maktabni tanlang</option>
+            {% for location in locations %}<option value="{{ location.id }}">{{ location.viloyat }} · {{ location.tuman }} · {{ location.maktab }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Sinf (1-11)<input type="number" name="sinf" min="1" max="11" required></label>
+        <label>Sinf rahbari F.I.Sh<input type="text" name="class_teacher_name" maxlength="100" required></label>
+        <button type="submit">Sinf rahbarini saqlash</button>
+      </form>
+      <table class="simple-table">
+        <tr><th>Maktab</th><th>Sinf</th><th>Sinf rahbari</th></tr>
+        {% for item in class_settings %}
+        <tr><td>{{ item.viloyat }} · {{ item.tuman }} · {{ item.maktab }}</td><td>{{ item.sinf }}-sinf</td><td>{{ item.class_teacher_name }}</td></tr>
+        {% else %}
+        <tr><td colspan="3" class="muted">Sinf rahbarlari hali kiritilmagan.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+
     <form method="post" action="blocks/save" class="block-form">
       <label>Sinf (1-11)<input type="number" name="sinf" min="1" max="11" required></label>
       <label>Chorak (1-4)<input type="number" name="chorak" min="1" max="4" required></label>
@@ -110,17 +159,19 @@
       </label>
       <label>Kirish kodi<input type="text" name="entry_code" required></label>
       <label>Mas'ul shaxs F.I.Sh<input type="text" name="responsible_name"></label>
+      <label>Test tuzuvchisi F.I.Sh<input type="text" name="test_creator_name" required></label>
       <label class="checkbox"><input type="checkbox" name="is_open"> O'quvchilarga ochiq</label>
       <button type="submit">Saqlash</button>
     </form>
 
     <table class="simple-table">
-      <tr><th>Sinf</th><th>Chorak</th><th>Blok</th><th>Fanlar</th><th>Mas'ul</th><th>Ochiqmi</th><th>Natijalar</th></tr>
+      <tr><th>Sinf</th><th>Chorak</th><th>Blok</th><th>Fanlar</th><th>Mas'ul</th><th>Test tuzuvchisi</th><th>Ochiqmi</th><th>Natijalar</th></tr>
       {% for b in blocks %}
       <tr>
         <td>{{ b.sinf }}</td><td>{{ b.chorak }}</td><td>{{ b.blok }}</td>
         <td>{{ b.s1n }}, {{ b.s2n }}, {{ b.s3n }}</td>
         <td>{{ b.responsible_name }}</td>
+        <td>{{ b.test_creator_name }}</td>
         <td>{{ "Ha" if b.is_open else "Yo'q" }}</td>
         <td><a href="blocks/{{ b.id }}/export">Excelga yuklash</a></td>
       </tr>

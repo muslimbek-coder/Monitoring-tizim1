@@ -12,6 +12,16 @@ CREATE TABLE IF NOT EXISTS school_locations (
     UNIQUE(viloyat, tuman, maktab)
 );
 
+CREATE TABLE IF NOT EXISTS responsible_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    school_location_id INTEGER NOT NULL
+        REFERENCES school_locations(id) ON DELETE CASCADE,
+    UNIQUE(username, school_location_id)
+);
+
 CREATE TABLE IF NOT EXISTS students (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sinf INTEGER NOT NULL,
@@ -47,8 +57,27 @@ CREATE TABLE IF NOT EXISTS blocks (
     subject3_id INTEGER REFERENCES subjects(id),
     entry_code TEXT,
     responsible_name TEXT,
+    test_creator_name TEXT NOT NULL DEFAULT '',
     is_open INTEGER NOT NULL DEFAULT 0,
     UNIQUE(sinf, chorak, blok)
+);
+
+CREATE TABLE IF NOT EXISTS class_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    school_location_id INTEGER NOT NULL
+        REFERENCES school_locations(id) ON DELETE CASCADE,
+    sinf INTEGER NOT NULL,
+    class_teacher_name TEXT NOT NULL,
+    UNIQUE(school_location_id, sinf)
+);
+
+CREATE TABLE IF NOT EXISTS responsible_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    responsible_user_id INTEGER NOT NULL
+        REFERENCES responsible_users(id) ON DELETE CASCADE,
+    sinf INTEGER NOT NULL,
+    checked_at TEXT NOT NULL,
+    UNIQUE(responsible_user_id, sinf)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (

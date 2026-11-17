@@ -440,3 +440,146 @@ def export_block_results_to_excel(block_id: int) -> bytes:
 
     finally:
         conn.close()
+
+
+def export_class_results_to_excel(location_id: int, sinf: int) -> bytes:
+    """Mas'ul biriktirilgan maktabning bitta sinfi natijalarini Excelga yozadi."""
+    conn = get_conn()
+    try:
+        location = conn.execute(
+            "SELECT viloyat, tuman, maktab FROM school_locations WHERE id = ?",
+            (location_id,),
+        ).fetchone()
+        if not location:
+            raise ValueError("Maktab topilmadi.")
+
+        class_setting = conn.execute(
+            """
+            SELECT class_teacher_name FROM class_settings
+            WHERE school_location_id = ? AND sinf = ?
+            """,
+            (location_id, sinf),
+        ).fetchone()
+        class_teacher = (
+            class_setting["class_teacher_name"] if class_setting else ""
+        )
+
+        records = conn.execute(
+            """
+            SELECT
+                st.id AS student_id,
+                st.fish,
+                sess.id AS session_id,
+                sess.finished_at,
+                b.chorak,
+                b.blok,
+                b.test_creator_name,
+                COUNT(sq.id) AS total_questions,
+                COALESCE(SUM(sq.is_correct), 0) AS total_correct
+            FROM students AS st
+            LEFT JOIN sessions AS sess
+                ON sess.student_id = st.id AND sess.status = 'finished'
+            LEFT JOIN blocks AS b ON b.id = sess.block_id
+            LEFT JOIN session_questions AS sq ON sq.session_id = sess.id
+            WHERE st.school_location_id = ? AND st.sinf = ?
+            GROUP BY
+                st.id,
+                st.fish,
+                sess.id,
+                sess.finished_at,
+                b.chorak,
+                b.blok,
+                b.test_creator_name
+            ORDER BY st.fish, sess.finished_at
+            """,
+            (location_id, sinf),
+        ).fetchall()
+
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet.title = f"{sinf}-sinf natijalari"[:31]
+        headers = [
+            "Viloyat",
+            "Tuman",
+            "Maktab",
+            "Sinf",
+            "Sinf rahbari",
+            "O'quvchi F.I.Sh",
+            "Chorak",
+            "Blok",
+            "Test tuzuvchisi",
+            "Fanlar bo'yicha natija",
+            "To'g'ri javob",
+            "Savollar soni",
+            "Ball (%)",
+            "Tugatilgan vaqt",
+        ]
+        header_font = Font(bold=True)
+        header_alignment = Alignment(horizontal="center", wrap_text=True)
+        for column, title in enumerate(headers, start=1):
+            cell = worksheet.cell(row=1, column=column, value=title)
+            cell.font = header_font
+            cell.alignment = header_alignment
+
+        for row_number, record in enumerate(records, start=2):
+            subject_results = []
+            if record["session_id"]:
+                subjects = conn.execute(
+                    """
+                    SELECT
+                        sub.name,
+                        COUNT(*) AS total,
+                        COALESCE(SUM(sq.is_correct), 0) AS correct
+                    FROM session_questions AS sq
+                    JOIN subjects AS sub ON sub.id = sq.subject_id
+                    WHERE sq.session_id = ?
+                    GROUP BY sq.subject_id, sub.name
+                    ORDER BY MIN(sq.id)
+                    """,
+                    (record["session_id"],),
+                ).fetchall()
+                subject_results = [
+                    (
+                        f"{subject['name']}: {subject['correct']}/"
+                        f"{subject['total']} "
+                        f"({round(subject['correct'] / subject['total'] * 100)}%)"
+                    )
+                    for subject in subjects
+                ]
+
+            total_questions = record["total_questions"]
+            total_correct = record["total_correct"]
+            row_values = [
+                location["viloyat"],
+                location["tuman"],
+                location["maktab"],
+                sinf,
+                class_teacher,
+                record["fish"],
+                record["chorak"] or "",
+                record["blok"] or "",
+                record["test_creator_name"] or "",
+                "; ".join(subject_results) or "Natija mavjud emas",
+                total_correct if record["session_id"] else "",
+                total_questions if record["session_id"] else "",
+                round(total_correct / total_questions * 100)
+                if total_questions
+                else (0 if record["session_id"] else ""),
+                record["finished_at"] or "",
+            ]
+            for column, value in enumerate(row_values, start=1):
+                worksheet.cell(row=row_number, column=column, value=value)
+
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = f"A1:N{max(len(records) + 1, 1)}"
+        widths = (22, 22, 18, 9, 26, 30, 10, 9, 26, 64, 15, 15, 12, 27)
+        for column, width in enumerate(widths, start=1):
+            worksheet.column_dimensions[get_column_letter(column)].width = width
+
+        import io
+
+        output = io.BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+    finally:
+        conn.close()

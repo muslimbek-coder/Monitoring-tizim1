@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mas'ullar oynasi — Monitoring tizimi</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="portal-page">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">M</span><strong>Monitoring <span>tizimi</span></strong></div>
+    <span class="topbar-caption">Mas'ullar oynasi</span>
+    <a href="/responsible/logout">Chiqish</a>
+  </header>
+  <main class="portal-content">
+    <section class="portal-welcome">
+      <p class="selection-kicker">NATIJALARNI NAZORAT QILISH</p>
+      <h1>Xush kelibsiz, {{ responsible.full_name }}</h1>
+      <p>{{ responsible.viloyat }} · {{ responsible.tuman }} · {{ responsible.maktab }}</p>
+    </section>
+
+    <div class="portal-section-heading">
+      <div><h2>Sinf natijalari</h2><p class="muted">Sinfni ochib, natijalarni ko'ring va tekshirilganini belgilang.</p></div>
+      <span class="class-count">{{ classes|length }} ta sinf</span>
+    </div>
+
+    <div class="class-card-grid">
+      {% for item in classes %}
+      <article class="class-card">
+        <div class="class-card-top">
+          <span class="class-icon">{{ "%02d"|format(item.sinf) }}</span>
+          <span class="status-pill {% if item.needs_review %}status-warning{% elif item.checked_at %}status-done{% else %}status-pending{% endif %}">
+            {% if item.needs_review %}Qayta tekshirish kerak{% elif item.checked_at %}Tekshirildi{% else %}Tekshirilmagan{% endif %}
+          </span>
+        </div>
+        <h3>{{ item.sinf }}-sinf</h3>
+        <p class="class-teacher">{% if item.class_teacher_name %}Sinf rahbari: {{ item.class_teacher_name }}{% else %}Sinf rahbari kiritilmagan{% endif %}</p>
+        <div class="class-stats">
+          <span><strong>{{ item.student_count }}</strong> o'quvchi</span>
+          <span><strong>{{ item.result_count }}</strong> test natijasi</span>
+        </div>
+        <a class="primary-link" href="/responsible/classes/{{ item.sinf }}">Natijalarni ko'rish <span aria-hidden="true">→</span></a>
+      </article>
+      {% else %}
+      <section class="empty-state portal-empty">
+        Bu maktab uchun o'quvchilar ro'yxati topilmadi. Administrator Excel ro'yxatini to'g'ri maktabga biriktirib import qilganini tekshiring.
+      </section>
+      {% endfor %}
+    </div>
+  </main>
+</body>
+</html>

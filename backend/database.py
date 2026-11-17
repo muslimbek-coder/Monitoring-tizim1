@@ -84,5 +84,18 @@ def init_db() -> None:
                 raise
             finally:
                 conn.execute("PRAGMA foreign_keys = ON")
+
+        block_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(blocks)").fetchall()
+        }
+        if "test_creator_name" not in block_columns:
+            conn.execute(
+                """
+                ALTER TABLE blocks
+                ADD COLUMN test_creator_name TEXT NOT NULL DEFAULT ''
+                """
+            )
+            conn.commit()
     finally:
         conn.close()

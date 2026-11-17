@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mas'ullar kirishi — Monitoring tizimi</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="centered-page">
+  <form class="card selection-card" method="post" action="/responsible/login">
+    <div class="selection-brand"><span class="brand-mark">M</span><span>Monitoring <b>tizimi</b></span></div>
+    <p class="selection-kicker">MAS'ULLAR UCHUN</p>
+    <h1>Natijalarni tekshirish</h1>
+    <p class="selection-help">Admin bergan login va parol bilan biriktirilgan maktabingiz natijalariga kiring.</p>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    {% if not locations %}<p class="error">Hozircha maktablar qo'shilmagan.</p>{% endif %}
+    <div class="selection-grid">
+      <label>Viloyat
+        <select id="viloyat-select" required {% if not locations %}disabled{% endif %}>
+          <option value="">Viloyatni tanlang</option>
+        </select>
+      </label>
+      <label>Tuman yoki shahar
+        <select id="tuman-select" required disabled>
+          <option value="">Avval viloyatni tanlang</option>
+        </select>
+      </label>
+      <label class="selection-full">Maktab raqami yoki nomi
+        <select id="maktab-select" name="location_id" required disabled>
+          <option value="">Avval tumanni tanlang</option>
+        </select>
+      </label>
+    </div>
+    <label>Admin bergan login
+      <input type="text" name="username" autocomplete="username" required>
+    </label>
+    <label>Admin bergan parol
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit" {% if not locations %}disabled{% endif %}>Kirish <span aria-hidden="true">→</span></button>
+    <a class="back-link" href="/">← O'quvchi sahifasiga qaytish</a>
+  </form>
+
+  <script>window.SCHOOL_LOCATIONS = {{ locations|tojson }};</script>
+  <script src="/static/js/select.js"></script>
+</body>
+</html>

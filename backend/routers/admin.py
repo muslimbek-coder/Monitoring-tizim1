@@ -170,6 +170,35 @@ def dashboard(request: Request):
             """
         ).fetchall()
 
+        responsibles = conn.execute(
+            """
+            SELECT
+                ru.id,
+                ru.username,
+                ru.full_name,
+                sl.viloyat,
+                sl.tuman,
+                sl.maktab
+            FROM responsible_users AS ru
+            JOIN school_locations AS sl ON sl.id = ru.school_location_id
+            ORDER BY sl.viloyat, sl.tuman, sl.maktab, ru.full_name
+            """
+        ).fetchall()
+
+        class_settings = conn.execute(
+            """
+            SELECT
+                cs.sinf,
+                cs.class_teacher_name,
+                sl.viloyat,
+                sl.tuman,
+                sl.maktab
+            FROM class_settings AS cs
+            JOIN school_locations AS sl ON sl.id = cs.school_location_id
+            ORDER BY sl.viloyat, sl.tuman, sl.maktab, cs.sinf
+            """
+        ).fetchall()
+
     finally:
         conn.close()
 
@@ -182,6 +211,8 @@ def dashboard(request: Request):
             "student_count": student_count,
             "admins": admins,
             "locations": locations,
+            "responsibles": responsibles,
+            "class_settings": class_settings,
             "error": request.query_params.get("error"),
             "notice": request.query_params.get("notice"),
         },
@@ -228,6 +259,117 @@ def admin_create(
 
     return RedirectResponse(
         url=base + "/dashboard?notice=Mas%27ul%20admin%20qo%27shildi",
+        status_code=303,
+    )
+
+
+@router.post("/responsibles/create")
+def responsible_create(
+    request: Request,
+    full_name: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(...),
+    location_id: int = Form(...),
+):
+    base = str(request.url).split("/responsibles/create")[0]
+    redirect = _require_admin_or_redirect(request, base + "/login")
+    if redirect:
+        return redirect
+
+    full_name = full_name.strip()
+    username = username.strip()
+    if not full_name or len(full_name) > 100:
+        return RedirectResponse(
+            url=base + "/dashboard?error=Mas%27ul%20F.I.Sh.ni%20to%27g%27ri%20kiriting",
+            status_code=303,
+        )
+    if not 3 <= len(username) <= 32 or not username.replace("_", "").isalnum():
+        return RedirectResponse(
+            url=base + "/dashboard?error=Login%203-32%20ta%20harf%20yoki%20raqamdan%20iborat%20bo%27lsin",
+            status_code=303,
+        )
+    if len(password) < 6:
+        return RedirectResponse(
+            url=base + "/dashboard?error=Parol%20kamida%206%20ta%20belgi%20bo%27lsin",
+            status_code=303,
+        )
+
+    conn = get_conn()
+    try:
+        location = conn.execute(
+            "SELECT id FROM school_locations WHERE id = ?",
+            (location_id,),
+        ).fetchone()
+        if not location:
+            return RedirectResponse(
+                url=base + "/dashboard?error=Hudud%20va%20maktabni%20tanlang",
+                status_code=303,
+            )
+        conn.execute(
+            """
+            INSERT INTO responsible_users
+                (username, password_hash, full_name, school_location_id)
+            VALUES (?, ?, ?, ?)
+            """,
+            (username, hash_password(password), full_name, location_id),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        return RedirectResponse(
+            url=base + "/dashboard?error=Bu%20maktabda%20ushbu%20login%20mavjud",
+            status_code=303,
+        )
+    finally:
+        conn.close()
+
+    return RedirectResponse(
+        url=base + "/dashboard?notice=Mas%27ul%20hisobi%20qo%27shildi",
+        status_code=303,
+    )
+
+
+@router.post("/classes/save")
+def class_settings_save(
+    request: Request,
+    sinf: int = Form(...),
+    class_teacher_name: str = Form(...),
+    location_id: int = Form(...),
+):
+    base = str(request.url).split("/classes/save")[0]
+    redirect = _require_admin_or_redirect(request, base + "/login")
+    if redirect:
+        return redirect
+
+    class_teacher_name = class_teacher_name.strip()
+    if not 1 <= sinf <= 11 or not class_teacher_name or len(class_teacher_name) > 100:
+        return RedirectResponse(
+            url=base + "/dashboard?error=Sinf%20yoki%20sinf%20rahbari%20ma%27lumotini%20tekshiring",
+            status_code=303,
+        )
+
+    conn = get_conn()
+    try:
+        conn.execute(
+            """
+            INSERT INTO class_settings
+                (school_location_id, sinf, class_teacher_name)
+            VALUES (?, ?, ?)
+            ON CONFLICT(school_location_id, sinf)
+            DO UPDATE SET class_teacher_name = excluded.class_teacher_name
+            """,
+            (location_id, sinf, class_teacher_name),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        return RedirectResponse(
+            url=base + "/dashboard?error=Hudud%20va%20maktabni%20tanlang",
+            status_code=303,
+        )
+    finally:
+        conn.close()
+
+    return RedirectResponse(
+        url=base + "/dashboard?notice=Sinf%20rahbari%20saqlandi",
         status_code=303,
     )
 
@@ -389,6 +531,7 @@ def block_save(
     subject3_id: int = Form(...),
     entry_code: str = Form(...),
     responsible_name: str = Form(""),
+    test_creator_name: str = Form(...),
     is_open: str = Form(None),
 ):
     base = str(request.url).split("/blocks/save")[0]
@@ -415,9 +558,10 @@ def block_save(
                 subject3_id,
                 entry_code,
                 responsible_name,
+                test_creator_name,
                 is_open
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
             ON CONFLICT(sinf, chorak, blok)
             DO UPDATE SET
@@ -426,6 +570,7 @@ def block_save(
                 subject3_id = excluded.subject3_id,
                 entry_code = excluded.entry_code,
                 responsible_name = excluded.responsible_name,
+                test_creator_name = excluded.test_creator_name,
                 is_open = excluded.is_open
             """,
             (
@@ -437,6 +582,7 @@ def block_save(
                 subject3_id,
                 entry_code.strip(),
                 responsible_name.strip(),
+                test_creator_name.strip(),
                 1 if is_open else 0,
             ),
         )

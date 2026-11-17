@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ sinf }}-sinf natijalari — Monitoring tizimi</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="portal-page">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">M</span><strong>Monitoring <span>tizimi</span></strong></div>
+    <span class="topbar-caption">Mas'ullar oynasi</span>
+    <a href="/responsible/logout">Chiqish</a>
+  </header>
+  <main class="portal-content">
+    <a class="portal-back" href="/responsible/dashboard">← Sinflar ro'yxatiga qaytish</a>
+    <section class="portal-welcome class-welcome">
+      <p class="selection-kicker">{{ responsible.viloyat }} · {{ responsible.tuman }} · {{ responsible.maktab }}</p>
+      <h1>{{ sinf }}-sinf natijalari</h1>
+      <p>{% if class_teacher %}Sinf rahbari: <strong>{{ class_teacher }}</strong>{% else %}Sinf rahbari kiritilmagan{% endif %}</p>
+    </section>
+
+    <section class="results-panel">
+      <div class="results-panel-heading">
+        <div><h2>O'quvchilar va test natijalari</h2><p class="muted">Natijalar faqat siz biriktirilgan maktab bo'yicha ko'rsatiladi.</p></div>
+        <span class="class-count">{{ results|length }} ta yozuv</span>
+      </div>
+      <div class="table-scroll">
+        <table class="simple-table results-table">
+          <thead>
+            <tr><th>O'quvchi</th><th>Test</th><th>Test tuzuvchisi</th><th>Fanlar</th><th>Umumiy natija</th><th>Topshirilgan vaqt</th></tr>
+          </thead>
+          <tbody>
+            {% for row in results %}
+            <tr>
+              <td><strong>{{ row.fish }}</strong></td>
+              {% if row.session_id %}
+              <td>{{ row.chorak }}-chorak · {{ row.blok }}-blok</td>
+              <td>{{ row.test_creator_name or "—" }}</td>
+              <td>{% for subject in row.subjects %}<div>{{ subject.name }}: {{ subject.correct }}/{{ subject.total }} ({{ subject.percent }}%)</div>{% endfor %}</td>
+              <td><strong>{{ row.total_correct }}/{{ row.total_questions }}</strong><br><span class="muted">{{ row.score }}%</span></td>
+              <td>{{ row.finished_at }}</td>
+              {% else %}
+              <td colspan="5"><span class="muted">Hozircha tugatilgan test natijasi yo'q.</span></td>
+              {% endif %}
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="muted">Bu sinfda o'quvchilar ro'yxati yo'q.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="review-actions">
+        {% if is_checked %}
+        <p class="review-confirmation">✓ Natijalar tekshirildi{% if checked_at %} · {{ checked_at }}{% endif %}</p>
+        <a class="download-link" href="/responsible/classes/{{ sinf }}/export">Excel faylini yuklab olish <span aria-hidden="true">↓</span></a>
+        {% else %}
+        {% if needs_review %}<p class="review-reminder">Yangi test natijalari qo'shilgan. Excel yuklab olishdan oldin qayta tekshiring.</p>{% endif %}
+        <form method="post" action="/responsible/classes/{{ sinf }}/check">
+          <button type="submit" class="review-button">Tekshirildi deb belgilash</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>
