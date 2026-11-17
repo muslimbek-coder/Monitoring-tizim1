@@ -30,7 +30,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, C
 
 from backend.database import get_conn
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "QO'YING_BOT_TOKENINGIZNI_BU_YERGA")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "9179413216:AAE-xWAr2Rqv1pUp1q2d-9pFnZzGQyehkyk")
 
 VILOYATLAR = [
     "Qoraqalpog'iston Respublikasi", "Andijon", "Buxoro", "Farg'ona", "Jizzax",
