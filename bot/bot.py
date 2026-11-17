@@ -263,7 +263,10 @@ async def maktab_chosen(
         await callback.answer("Noto'g'ri maktab tanlandi.", show_alert=True)
         return
 
-    await state.update_data(maktab=location["maktab"])
+    await state.update_data(
+        maktab=location["maktab"],
+        school_location_id=location_id,
+    )
 
     await callback.message.answer(
         "Test yakunida berilgan qisqa loginni yoki "
@@ -334,13 +337,19 @@ async def sinf_entered(
         student = None
         if fish and fish[:1].lower() == "o" and fish[1:].isdigit():
             student = conn.execute(
-                "SELECT * FROM students WHERE id = ? AND sinf = ?",
-                (int(fish[1:]), sinf),
+                """
+                SELECT * FROM students
+                WHERE id = ? AND sinf = ? AND school_location_id = ?
+                """,
+                (int(fish[1:]), sinf, data.get("school_location_id")),
             ).fetchone()
         if not student:
             student = conn.execute(
-                "SELECT * FROM students WHERE fish = ? AND sinf = ?",
-                (fish, sinf),
+                """
+                SELECT * FROM students
+                WHERE fish = ? AND sinf = ? AND school_location_id = ?
+                """,
+                (fish, sinf, data.get("school_location_id")),
             ).fetchone()
 
         if not student:

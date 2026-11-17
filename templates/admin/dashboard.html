@@ -45,10 +45,18 @@
     <div class="section-heading"><span class="section-number">03</span><div><h3>O'quvchilar ro'yxati</h3><p class="muted">Excel faylidan import qiling</p></div></div>
     <p class="muted">Jami o'quvchilar: {{ student_count }}</p>
     <form method="post" action="students/import" enctype="multipart/form-data">
+      <label>O'quvchilar qaysi maktabdan?
+        <select name="location_id" required>
+          <option value="">Maktabni tanlang</option>
+          {% for location in locations %}
+          <option value="{{ location.id }}">{{ location.viloyat }} · {{ location.tuman }} · {{ location.maktab }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <input type="file" name="file" accept=".xlsx,.xls" required>
       <button type="submit">Import qilish</button>
     </form>
-    <p class="muted">Format: 1-ustun — sinfi (masalan 7), 2-ustun — F.I.Sh</p>
+    <p class="muted">Format: 1-ustun — sinfi (masalan 7), 2-ustun — F.I.Sh. Tanlangan maktab ushbu ro'yxatdagi o'quvchilarga biriktiriladi.</p>
   </section>
 
   <section class="card">

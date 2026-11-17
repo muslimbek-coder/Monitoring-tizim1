@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -14,50 +14,164 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    return templates.TemplateResponse("select.html", {"request": request, "step": "sinf"})
+    conn = get_conn()
+    try:
+        locations = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT id, viloyat, tuman, maktab
+                FROM school_locations
+                ORDER BY viloyat, tuman, maktab
+                """
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+    return templates.TemplateResponse(
+        "select.html",
+        {"request": request, "step": "sinf", "locations": locations},
+    )
 
 
 @router.post("/select-class", response_class=HTMLResponse)
-def select_class(request: Request, sinf: int = Form(...)):
+def select_class(
+    request: Request,
+    sinf: int = Form(...),
+    location_id: int = Form(...),
+):
+    if not 1 <= sinf <= 11:
+        raise HTTPException(status_code=400, detail="Sinf 1 dan 11 gacha bo'lishi kerak.")
+
     conn = get_conn()
-    students = conn.execute(
-        "SELECT id, fish FROM students WHERE sinf = ? ORDER BY fish", (sinf,)
-    ).fetchall()
+    try:
+        location = conn.execute(
+            "SELECT id, viloyat, tuman, maktab FROM school_locations WHERE id = ?",
+            (location_id,),
+        ).fetchone()
+        if not location:
+            raise HTTPException(status_code=400, detail="Maktab tanlanmagan.")
+        students = conn.execute(
+            """
+            SELECT id, fish FROM students
+            WHERE sinf = ? AND school_location_id = ?
+            ORDER BY fish
+            """,
+            (sinf, location_id),
+        ).fetchall()
+    finally:
+        conn.close()
+
     blocks = get_open_blocks_for_class(sinf)
-    conn.close()
     return templates.TemplateResponse(
         "select.html",
-        {"request": request, "step": "ism", "sinf": sinf, "students": students, "blocks": blocks},
+        {
+            "request": request,
+            "step": "ism",
+            "sinf": sinf,
+            "location": location,
+            "students": students,
+            "blocks": blocks,
+        },
     )
 
 
 @router.post("/start-code-prompt", response_class=HTMLResponse)
-def start_code_prompt(request: Request, sinf: int = Form(...), student_id: int = Form(...), block_id: int = Form(...)):
+def start_code_prompt(
+    request: Request,
+    sinf: int = Form(...),
+    student_id: int = Form(...),
+    block_id: int = Form(...),
+    location_id: int = Form(...),
+):
+    conn = get_conn()
+    try:
+        location = conn.execute(
+            "SELECT id, viloyat, tuman, maktab FROM school_locations WHERE id = ?",
+            (location_id,),
+        ).fetchone()
+        student = conn.execute(
+            """
+            SELECT id FROM students
+            WHERE id = ? AND sinf = ? AND school_location_id = ?
+            """,
+            (student_id, sinf, location_id),
+        ).fetchone()
+        block = conn.execute(
+            "SELECT id FROM blocks WHERE id = ? AND sinf = ? AND is_open = 1",
+            (block_id, sinf),
+        ).fetchone()
+        if not location or not student or not block:
+            raise HTTPException(status_code=400, detail="Tanlangan ma'lumotlar mos kelmadi.")
+    finally:
+        conn.close()
+
     return templates.TemplateResponse(
         "select.html",
-        {"request": request, "step": "kod", "sinf": sinf, "student_id": student_id, "block_id": block_id},
+        {
+            "request": request,
+            "step": "kod",
+            "sinf": sinf,
+            "student_id": student_id,
+            "block_id": block_id,
+            "location": location,
+        },
     )
 
 
 @router.post("/begin-exam")
-def begin_exam(request: Request, student_id: int = Form(...), block_id: int = Form(...), entry_code: str = Form(...)):
+def begin_exam(
+    request: Request,
+    student_id: int = Form(...),
+    block_id: int = Form(...),
+    entry_code: str = Form(...),
+    sinf: int = Form(...),
+    location_id: int = Form(...),
+):
     conn = get_conn()
-    block = conn.execute("SELECT * FROM blocks WHERE id = ?", (block_id,)).fetchone()
-    existing = conn.execute(
-        "SELECT id, status FROM sessions WHERE student_id = ? AND block_id = ?",
-        (student_id, block_id),
-    ).fetchone()
-    conn.close()
+    try:
+        location = conn.execute(
+            "SELECT id, viloyat, tuman, maktab FROM school_locations WHERE id = ?",
+            (location_id,),
+        ).fetchone()
+        student = conn.execute(
+            """
+            SELECT id FROM students
+            WHERE id = ? AND sinf = ? AND school_location_id = ?
+            """,
+            (student_id, sinf, location_id),
+        ).fetchone()
+        block = conn.execute(
+            "SELECT * FROM blocks WHERE id = ? AND sinf = ? AND is_open = 1",
+            (block_id, sinf),
+        ).fetchone()
+        existing = None
+        if location and student and block:
+            existing = conn.execute(
+                """
+                SELECT id, status FROM sessions
+                WHERE student_id = ? AND block_id = ?
+                """,
+                (student_id, block_id),
+            ).fetchone()
+    finally:
+        conn.close()
 
-    if not block or (block["entry_code"] or "") != entry_code.strip():
+    if (
+        not location
+        or not student
+        or not block
+        or (block["entry_code"] or "") != entry_code.strip()
+    ):
         return templates.TemplateResponse(
             "select.html",
             {
                 "request": request,
                 "step": "kod",
-                "sinf": block["sinf"] if block else None,
+                "sinf": sinf,
                 "student_id": student_id,
                 "block_id": block_id,
+                "location": location,
                 "error": "Kirish kodi noto'g'ri",
             },
         )

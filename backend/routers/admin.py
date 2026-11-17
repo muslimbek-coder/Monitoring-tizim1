@@ -164,7 +164,7 @@ def dashboard(request: Request):
 
         locations = conn.execute(
             """
-            SELECT viloyat, tuman, maktab
+            SELECT id, viloyat, tuman, maktab
             FROM school_locations
             ORDER BY viloyat, tuman, maktab
             """
@@ -274,6 +274,7 @@ def location_create(
 async def students_import(
     request: Request,
     file: UploadFile = File(...),
+    location_id: int = Form(...),
 ):
     base = str(request.url).split("/students/import")[0]
 
@@ -285,9 +286,20 @@ async def students_import(
     if redirect:
         return redirect
 
+    conn = get_conn()
+    try:
+        location = conn.execute(
+            "SELECT id FROM school_locations WHERE id = ?",
+            (location_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not location:
+        raise HTTPException(status_code=400, detail="Maktab tanlanmagan.")
+
     content = await file.read()
 
-    import_students_from_excel(content)
+    import_students_from_excel(content, school_location_id=location_id)
 
     return RedirectResponse(
         url=base + "/dashboard",

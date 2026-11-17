@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import re
+import sqlite3
 from dataclasses import dataclass, field
 
 import openpyxl
@@ -33,34 +34,56 @@ class ParsedQuestion:
     correct_index: int = 0  # 0..3
 
 
-def import_students_from_excel(file_bytes: bytes) -> dict:
-    """Excel: 1-ustun = sinf (masalan 7), 2-ustun = F.I.Sh"""
+def import_students_from_excel(
+    file_bytes: bytes,
+    school_location_id: int | None = None,
+) -> dict:
+    """Excelning sinf va F.I.Sh. ustunlarini tanlangan maktabga biriktiradi."""
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb.active
 
     added, skipped = 0, 0
     conn = get_conn()
-    for row in ws.iter_rows(min_row=1, values_only=True):
-        if not row or row[0] is None or row[1] is None:
-            continue
-        sinf_raw, fish_raw = row[0], row[1]
-        # sarlavha qatorini o'tkazib yuborish (sinf raqam bo'lmasa)
-        try:
-            sinf = int(str(sinf_raw).strip().split("-")[0])
-        except ValueError:
-            continue
-        fish = str(fish_raw).strip()
-        if not fish or not (1 <= sinf <= 11):
-            continue
-        try:
-            conn.execute(
-                "INSERT INTO students (sinf, fish) VALUES (?, ?)", (sinf, fish)
-            )
-            added += 1
-        except Exception:
-            skipped += 1  # allaqachon mavjud (sinf+fish unique)
-    conn.commit()
-    conn.close()
+    try:
+        for row in ws.iter_rows(min_row=1, values_only=True):
+            if not row or row[0] is None or row[1] is None:
+                continue
+            sinf_raw, fish_raw = row[0], row[1]
+            try:
+                sinf = int(str(sinf_raw).strip().split("-")[0])
+            except ValueError:
+                continue
+            fish = str(fish_raw).strip()
+            if not fish or not (1 <= sinf <= 11):
+                continue
+
+            if school_location_id is not None:
+                updated = conn.execute(
+                    """
+                    UPDATE students
+                    SET school_location_id = ?
+                    WHERE sinf = ? AND fish = ? AND school_location_id IS NULL
+                    """,
+                    (school_location_id, sinf, fish),
+                )
+                if updated.rowcount:
+                    added += 1
+                    continue
+
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO students (sinf, fish, school_location_id)
+                    VALUES (?, ?, ?)
+                    """,
+                    (sinf, fish, school_location_id),
+                )
+                added += 1
+            except sqlite3.IntegrityError:
+                skipped += 1
+        conn.commit()
+    finally:
+        conn.close()
     return {"added": added, "skipped": skipped}
 
 

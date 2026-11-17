@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS students (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sinf INTEGER NOT NULL,
     fish TEXT NOT NULL,
-    UNIQUE(sinf, fish)
+    school_location_id INTEGER REFERENCES school_locations(id),
+    UNIQUE(sinf, fish, school_location_id)
 );
 
 CREATE TABLE IF NOT EXISTS subjects (
