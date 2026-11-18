@@ -6,6 +6,8 @@ ko'rinadi.
 import sqlite3
 from pathlib import Path
 
+from .signers import SIGNER_ROLES
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "data" / "monitoring.db"
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
@@ -24,6 +26,10 @@ def init_db() -> None:
     try:
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
+        conn.executemany(
+            "INSERT OR IGNORE INTO monitoring_signers (role) VALUES (?)",
+            [(role,) for role, _ in SIGNER_ROLES],
+        )
         conn.commit()
 
         columns = {

@@ -113,8 +113,18 @@
        <code>- 1941</code></p>
   </section>
 
+  <section class="card">
+    <div class="section-heading"><span class="section-number">06</span><div><h3>Monitoring imzo qo'yuvchilari</h3><p class="muted">Kiritilgan F.I.Sh. blok natijalari Excel faylida ko'rsatiladi</p></div></div>
+    <form method="post" action="signers/save" class="stack-form">
+      {% for role, title in signer_roles %}
+      <label>{{ title }} F.I.Sh<input type="text" name="{{ role }}" maxlength="100" value="{{ signer_names.get(role, '') }}"></label>
+      {% endfor %}
+      <button type="submit">Ismlarni saqlash</button>
+    </form>
+  </section>
+
   <section class="card wide">
-    <div class="section-heading"><span class="section-number">06</span><div><h3>Sinf, chorak va blok sozlamalari</h3><p class="muted">Sinf rahbarlarini belgilang va testlarni o'quvchilarga oching</p></div></div>
+    <div class="section-heading"><span class="section-number">07</span><div><h3>Sinf, chorak va blok sozlamalari</h3><p class="muted">Sinf rahbarlarini belgilang va testlarni o'quvchilarga oching</p></div></div>
     <div class="class-settings">
       <h4>Sinf rahbarini biriktirish</h4>
       <form method="post" action="classes/save" class="block-form class-teacher-form">

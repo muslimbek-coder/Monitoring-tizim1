@@ -24,6 +24,7 @@ from ..importers import (
     import_students_from_excel,
 )
 from ..security import hash_password, verify_password
+from ..signers import SIGNER_ROLES
 
 
 router = APIRouter()
@@ -199,6 +200,13 @@ def dashboard(request: Request):
             """
         ).fetchall()
 
+        signer_names = {
+            row["role"]: row["full_name"]
+            for row in conn.execute(
+                "SELECT role, full_name FROM monitoring_signers"
+            ).fetchall()
+        }
+
     finally:
         conn.close()
 
@@ -213,6 +221,8 @@ def dashboard(request: Request):
             "locations": locations,
             "responsibles": responsibles,
             "class_settings": class_settings,
+            "signer_roles": SIGNER_ROLES,
+            "signer_names": signer_names,
             "error": request.query_params.get("error"),
             "notice": request.query_params.get("notice"),
         },
@@ -370,6 +380,51 @@ def class_settings_save(
 
     return RedirectResponse(
         url=base + "/dashboard?notice=Sinf%20rahbari%20saqlandi",
+        status_code=303,
+    )
+
+
+@router.post("/signers/save")
+def signers_save(
+    request: Request,
+    chair: str = Form(""),
+    secretary: str = Form(""),
+    member_1: str = Form(""),
+    member_2: str = Form(""),
+    member_3: str = Form(""),
+    member_4: str = Form(""),
+):
+    base = str(request.url).split("/signers/save")[0]
+    redirect = _require_admin_or_redirect(request, base + "/login")
+    if redirect:
+        return redirect
+
+    names = {
+        "chair": chair.strip(),
+        "secretary": secretary.strip(),
+        "member_1": member_1.strip(),
+        "member_2": member_2.strip(),
+        "member_3": member_3.strip(),
+        "member_4": member_4.strip(),
+    }
+    if any(len(name) > 100 for name in names.values()):
+        return RedirectResponse(
+            url=base + "/dashboard?error=F.I.Sh%20100%20ta%20belgidan%20oshmasin",
+            status_code=303,
+        )
+
+    conn = get_conn()
+    try:
+        conn.executemany(
+            "UPDATE monitoring_signers SET full_name = ? WHERE role = ?",
+            [(names[role], role) for role, _ in SIGNER_ROLES],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return RedirectResponse(
+        url=base + "/dashboard?notice=Imzo%20qo%27yuvchilar%20saqlandi",
         status_code=303,
     )
 

@@ -4,6 +4,11 @@ CREATE TABLE IF NOT EXISTS admin_users (
     password_hash TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS monitoring_signers (
+    role TEXT PRIMARY KEY,
+    full_name TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS school_locations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     viloyat TEXT NOT NULL,

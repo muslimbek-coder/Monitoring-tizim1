@@ -5,6 +5,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from .database import get_conn
+from .signers import SIGNER_ROLES
 
 QUESTIONS_PER_SUBJECT = 15
 EXAM_DURATION_SECONDS = 90 * 60
@@ -293,6 +294,13 @@ def export_block_results_to_excel(block_id: int) -> bytes:
         if block is None:
             raise ValueError(f"{block_id}-ID li blok topilmadi.")
 
+        signer_names = {
+            row["role"]: row["full_name"]
+            for row in conn.execute(
+                "SELECT role, full_name FROM monitoring_signers"
+            ).fetchall()
+        }
+
         subject_names = [
             n for n in (block["s1n"], block["s2n"], block["s3n"]) if n
         ]
@@ -412,24 +420,23 @@ def export_block_results_to_excel(block_id: int) -> bytes:
 
         row += 2
 
-        signers = [
-            "Monitoring raisi",
-            "Kotibi",
-            "1-a'zo",
-            "2-a'zo",
-            "3-a'zo",
-            "4-a'zo",
-        ]
-
-        for title in signers:
+        for role, title in SIGNER_ROLES:
             ws.cell(row=row, column=1, value=title).font = bold
-            ws.cell(row=row, column=2, value="F.I.Sh: ______________________")
+            full_name = signer_names.get(role, "").strip()
+            ws.cell(
+                row=row,
+                column=2,
+                value=f"F.I.Sh: {full_name or '______________________'}",
+            )
             ws.cell(row=row, column=4, value="Imzo: ______________")
             row += 1
 
         # Ustunlar kengligi
         for c in range(1, col):
             ws.column_dimensions[get_column_letter(c)].width = 10
+        ws.column_dimensions["A"].width = 28
+        ws.column_dimensions["B"].width = 36
+        ws.column_dimensions["D"].width = 20
 
         import io
 
