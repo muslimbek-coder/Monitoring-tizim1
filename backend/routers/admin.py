@@ -1,6 +1,7 @@
 
 from pathlib import Path
 import sqlite3
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -69,6 +70,22 @@ def _require_admin_or_redirect(request: Request, login_path: str):
     return None
 
 
+def _is_primary_admin(request: Request) -> bool:
+    admin_id = request.session.get("admin_user_id")
+    if not request.session.get("is_admin") or not admin_id:
+        return False
+
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT username FROM admin_users WHERE id = ?",
+            (admin_id,),
+        ).fetchone()
+        return bool(row and row["username"] == "admin")
+    finally:
+        conn.close()
+
+
 @router.get("/login", response_class=HTMLResponse)
 def login_form(request: Request):
     return templates.TemplateResponse(
@@ -107,6 +124,7 @@ def login_submit(
         )
 
     request.session["is_admin"] = True
+    request.session["admin_user_id"] = row["id"]
 
     return RedirectResponse(
         url=str(request.url).rsplit("/login", 1)[0] + "/dashboard",
@@ -156,8 +174,35 @@ def dashboard(request: Request):
         ).fetchall()
 
         student_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM students"
+            "SELECT COUNT(*) AS c FROM students WHERE is_active = 1"
         ).fetchone()["c"]
+
+        students = conn.execute(
+            """
+            SELECT
+                st.id, st.sinf, st.fish, st.is_active,
+                sl.viloyat, sl.tuman, sl.maktab,
+                COUNT(DISTINCT CASE WHEN sess.status = 'finished' THEN sess.id END)
+                    AS finished_count,
+                COUNT(DISTINCT CASE WHEN sess.status = 'started' THEN sess.id END)
+                    AS started_count
+            FROM students AS st
+            LEFT JOIN school_locations AS sl ON sl.id = st.school_location_id
+            LEFT JOIN sessions AS sess ON sess.student_id = st.id
+            GROUP BY st.id, sl.viloyat, sl.tuman, sl.maktab
+            ORDER BY st.is_active DESC, sl.maktab, st.sinf, st.fish
+            """
+        ).fetchall()
+
+        subject_question_counts = conn.execute(
+            """
+            SELECT sub.id, sub.name, COUNT(q.id) AS question_count
+            FROM subjects AS sub
+            LEFT JOIN questions AS q ON q.subject_id = sub.id
+            GROUP BY sub.id
+            ORDER BY sub.name
+            """
+        ).fetchall()
 
         admins = conn.execute(
             "SELECT id, username FROM admin_users ORDER BY username"
@@ -217,7 +262,10 @@ def dashboard(request: Request):
             "subjects": subjects,
             "blocks": blocks,
             "student_count": student_count,
+            "students": students,
             "admins": admins,
+            "admin_can_manage_accounts": _is_primary_admin(request),
+            "subject_question_counts": subject_question_counts,
             "locations": locations,
             "responsibles": responsibles,
             "class_settings": class_settings,
@@ -239,6 +287,11 @@ def admin_create(
     redirect = _require_admin_or_redirect(request, base + "/login")
     if redirect:
         return redirect
+    if not _is_primary_admin(request):
+        return RedirectResponse(
+            url=base + "/dashboard?error=Faqat%20asosiy%20admin%20yangi%20admin%20qo%27sha%20oladi",
+            status_code=303,
+        )
 
     username = username.strip()
     if not 3 <= len(username) <= 32 or not username.replace("_", "").isalnum():
@@ -504,6 +557,100 @@ async def students_import(
     )
 
 
+@router.post("/students/{student_id}/deactivate")
+def student_deactivate(request: Request, student_id: int):
+    base = str(request.url).split(f"/students/{student_id}/deactivate")[0]
+    redirect = _require_admin_or_redirect(request, base + "/login")
+    if redirect:
+        return redirect
+
+    conn = get_conn()
+    try:
+        updated = conn.execute(
+            "UPDATE students SET is_active = 0 WHERE id = ? AND is_active = 1",
+            (student_id,),
+        )
+        conn.commit()
+        if not updated.rowcount:
+            return RedirectResponse(
+                url=base + "/dashboard?error=Faol%20o%27quvchi%20topilmadi",
+                status_code=303,
+            )
+    finally:
+        conn.close()
+
+    return RedirectResponse(
+        url=base + "/dashboard?notice=O%27quvchi%20ro%27yxatdan%20chiqarildi",
+        status_code=303,
+    )
+
+
+@router.post("/students/{student_id}/activate")
+def student_activate(request: Request, student_id: int):
+    base = str(request.url).split(f"/students/{student_id}/activate")[0]
+    redirect = _require_admin_or_redirect(request, base + "/login")
+    if redirect:
+        return redirect
+
+    conn = get_conn()
+    try:
+        updated = conn.execute(
+            "UPDATE students SET is_active = 1 WHERE id = ?",
+            (student_id,),
+        )
+        conn.commit()
+        if not updated.rowcount:
+            return RedirectResponse(
+                url=base + "/dashboard?error=O%27quvchi%20topilmadi",
+                status_code=303,
+            )
+    finally:
+        conn.close()
+
+    return RedirectResponse(
+        url=base + "/dashboard?notice=O%27quvchi%20ro%27yxatga%20qaytarildi",
+        status_code=303,
+    )
+
+
+@router.get("/subjects/{subject_id}/questions", response_class=HTMLResponse)
+def subject_questions(request: Request, subject_id: int):
+    base = str(request.url).split(f"/subjects/{subject_id}/questions")[0]
+    redirect = _require_admin_or_redirect(request, base + "/login")
+    if redirect:
+        return redirect
+
+    conn = get_conn()
+    try:
+        subject = conn.execute(
+            "SELECT id, name FROM subjects WHERE id = ?",
+            (subject_id,),
+        ).fetchone()
+        if not subject:
+            raise HTTPException(status_code=404, detail="Fan topilmadi.")
+        questions = conn.execute(
+            """
+            SELECT question_text, option_a, option_b, option_c, option_d,
+                correct_option
+            FROM questions
+            WHERE subject_id = ?
+            ORDER BY id
+            """,
+            (subject_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return templates.TemplateResponse(
+        "questions.html",
+        {
+            "request": request,
+            "subject": subject,
+            "questions": questions,
+        },
+    )
+
+
 @router.post("/subjects/create")
 def subject_create(
     request: Request,
@@ -563,11 +710,17 @@ async def subject_import_questions(
 
     content = await file.read()
 
-    import_questions_for_subject(
-        subject_id,
-        file.filename,
-        content,
-    )
+    try:
+        import_questions_for_subject(
+            subject_id,
+            file.filename,
+            content,
+        )
+    except ValueError as exc:
+        return RedirectResponse(
+            url=base + "/dashboard?error=" + quote(str(exc)),
+            status_code=303,
+        )
 
     return RedirectResponse(
         url=base + "/dashboard",

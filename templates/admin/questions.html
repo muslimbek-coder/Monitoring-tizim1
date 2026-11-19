@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ subject.name }} testlari — Monitoring tizimi</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark">M</span><strong>Monitoring <span>tizimi</span></strong></div>
+  <span class="topbar-caption">Test banki</span>
+  <a href="../../dashboard">Admin panelga qaytish</a>
+  <a href="../../logout">Chiqish</a>
+</header>
+<main class="question-bank">
+  <a class="portal-back" href="../../dashboard">← Admin panelga qaytish</a>
+  <section class="card wide">
+    <div class="section-heading">
+      <span class="section-number">✓</span>
+      <div><h3>{{ subject.name }}</h3><p class="muted">{{ questions|length }} ta tuzilgan test savoli</p></div>
+    </div>
+    {% for question in questions %}
+    <article class="bank-question">
+      <h4>{{ loop.index }}. {{ question.question_text }}</h4>
+      <ol type="A">
+        {% for key, option in [('a', question.option_a), ('b', question.option_b), ('c', question.option_c), ('d', question.option_d)] %}
+        <li class="{% if question.correct_option == key %}correct-option{% endif %}">{{ option or "—" }}{% if question.correct_option == key %} <strong>✓ To'g'ri javob</strong>{% endif %}</li>
+        {% endfor %}
+      </ol>
+    </article>
+    {% else %}
+    <p class="empty-state">Bu fan uchun test savollari hali kiritilmagan.</p>
+    {% endfor %}
+  </section>
+</main>
+</body>
+</html>

@@ -13,6 +13,7 @@ MUHIM:
 """
 
 import asyncio
+from html import escape
 import logging
 import os
 import sys
@@ -340,6 +341,7 @@ async def sinf_entered(
                 """
                 SELECT * FROM students
                 WHERE id = ? AND sinf = ? AND school_location_id = ?
+                    AND is_active = 1
                 """,
                 (int(fish[1:]), sinf, data.get("school_location_id")),
             ).fetchone()
@@ -348,6 +350,7 @@ async def sinf_entered(
                 """
                 SELECT * FROM students
                 WHERE fish = ? AND sinf = ? AND school_location_id = ?
+                    AND is_active = 1
                 """,
                 (fish, sinf, data.get("school_location_id")),
             ).fetchone()
@@ -411,95 +414,53 @@ async def sinf_entered(
             await state.clear()
             return
 
-        # Natijalarni tayyorlash
-        lines = [
-            "📊 MONITORING NATIJALARI",
-            "",
-            f"📍 {data['viloyat']}, {data['tuman']} tumani",
-            f"🏫 {data['maktab']}",
-            f"👤 {student['fish']} ({student['sinf']}-sinf)",
-            "",
-        ]
+        await message.answer(
+            "📊 <b>MONITORING NATIJALARI</b>\n\n"
+            f"📍 {escape(data['viloyat'])}, {escape(data['tuman'])} tumani\n"
+            f"🏫 {escape(data['maktab'])}\n"
+            f"👤 {escape(student['fish'])} · {student['sinf']}-sinf\n\n"
+            "Har bir fan natijasi alohida yuboriladi:",
+            parse_mode="HTML",
+        )
 
         for sess in sessions:
             items = conn.execute(
                 """
                 SELECT
                     sub.name,
-                    sq.is_correct
+                    COUNT(*) AS total,
+                    COALESCE(SUM(sq.is_correct), 0) AS correct
                 FROM session_questions AS sq
                 JOIN subjects AS sub
                     ON sub.id = sq.subject_id
                 WHERE sq.session_id = ?
+                GROUP BY sq.subject_id, sub.name
+                ORDER BY MIN(sq.id)
                 """,
                 (sess["id"],),
             ).fetchall()
 
-            per_subject = {}
-
             for item in items:
-                name = item["name"]
+                correct = item["correct"]
+                total = item["total"]
+                percent = round(correct / total * 100) if total else 0
+                filled = round(percent / 10)
+                progress = "🟩" * filled + "⬜" * (10 - filled)
+                if percent >= 80:
+                    encouragement = "Ajoyib natija! Shu tempda davom eting 💪"
+                elif percent >= 50:
+                    encouragement = "Yaxshi! Yana ozgina mashq qilsangiz zo'r bo'ladi ✨"
+                else:
+                    encouragement = "Harakatdan to'xtamang — keyingi safar yanada yaxshi! 🌱"
 
-                if name not in per_subject:
-                    per_subject[name] = [0, 0]
-
-                per_subject[name][1] += 1
-
-                if item["is_correct"]:
-                    per_subject[name][0] += 1
-
-            lines.append(
-                f"📘 {sess['chorak']}-chorak, "
-                f"{sess['blok']}-blok:"
-            )
-
-            total_correct = 0
-            total_questions = 0
-
-            for name, (correct, total) in per_subject.items():
-                percent = (
-                    round(correct / total * 100)
-                    if total else 0
+                await message.answer(
+                    f"📘 <b>{escape(item['name'])}</b>\n"
+                    f"🗓 {sess['chorak']}-chorak · {sess['blok']}-blok\n\n"
+                    f"✅ To'g'ri javoblar: <b>{correct}/{total}</b>\n"
+                    f"{progress} <b>{percent}%</b>\n\n"
+                    f"{encouragement}",
+                    parse_mode="HTML",
                 )
-
-                lines.append(
-                    f"   • {name}: {correct}/{total} "
-                    f"to'g'ri ({percent}%)"
-                )
-
-                total_correct += correct
-                total_questions += total
-
-            overall_percent = (
-                round(total_correct / total_questions * 100)
-                if total_questions else 0
-            )
-
-            lines.append(
-                f"   ✅ Umumiy: {total_correct}/"
-                f"{total_questions} ({overall_percent}%)"
-            )
-
-            lines.append("")
-
-        # Telegram xabarining maksimal hajmini hisobga olish
-        result_text = "\n".join(lines)
-
-        if len(result_text) <= 4000:
-            await message.answer(result_text)
-        else:
-            # Natijani qismlarga bo'lib yuborish
-            chunk = ""
-
-            for line in lines:
-                if len(chunk) + len(line) + 1 > 4000:
-                    await message.answer(chunk)
-                    chunk = ""
-
-                chunk += line + "\n"
-
-            if chunk.strip():
-                await message.answer(chunk)
 
         await state.clear()
 

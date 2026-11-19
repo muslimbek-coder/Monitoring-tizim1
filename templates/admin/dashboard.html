@@ -17,8 +17,9 @@
   {% if error %}<p class="notice error-banner">{{ error }}</p>{% endif %}
   {% if notice %}<p class="notice success-banner">{{ notice }}</p>{% endif %}
 
+  {% if admin_can_manage_accounts %}
   <section class="card">
-    <div class="section-heading"><span class="section-number">01</span><div><h3>Admin hisoblari</h3><p class="muted">Boshqaruv paneliga kirish huquqiga ega hisoblar</p></div></div>
+    <div class="section-heading"><span class="section-number">01</span><div><h3>Admin hisoblari</h3><p class="muted">Faqat asosiy admin yangi boshqaruvchi hisobini yaratishi mumkin.</p></div></div>
     <form method="post" action="admins/create" class="stack-form">
       <label>Yangi admin login<input type="text" name="username" minlength="3" maxlength="32" required placeholder="masalan: masul_admin"></label>
       <label>Parol<input type="password" name="password" minlength="6" required placeholder="Kamida 6 ta belgi"></label>
@@ -28,6 +29,11 @@
       {% for a in admins %}<span class="admin-chip">{{ a.username }}{% if a.username == "admin" %} <small>(asosiy)</small>{% endif %}</span>{% endfor %}
     </div>
   </section>
+  {% else %}
+  <section class="card">
+    <div class="section-heading"><span class="section-number">01</span><div><h3>Admin huquqlari</h3><p class="muted">Qo'shimcha admin hisobi yangi admin login yoki parolini yarata olmaydi.</p></div></div>
+  </section>
+  {% endif %}
 
   <section class="card">
     <div class="section-heading"><span class="section-number">02</span><div><h3>Natijalarni tekshiruvchi mas'ullar</h3><p class="muted">Har bir mas'ul o'z maktabi natijalarini ko'radi</p></div></div>
@@ -69,7 +75,7 @@
 
   <section class="card">
     <div class="section-heading"><span class="section-number">04</span><div><h3>O'quvchilar ro'yxati</h3><p class="muted">Excel faylidan import qiling</p></div></div>
-    <p class="muted">Jami o'quvchilar: {{ student_count }}</p>
+    <p class="muted">Faol o'quvchilar: {{ student_count }}</p>
     <form method="post" action="students/import" enctype="multipart/form-data">
       <label>O'quvchilar qaysi maktabdan?
         <select name="location_id" required>
@@ -83,6 +89,36 @@
       <button type="submit">Import qilish</button>
     </form>
     <p class="muted">Format: 1-ustun — sinfi (masalan 7), 2-ustun — F.I.Sh. Tanlangan maktab ushbu ro'yxatdagi o'quvchilarga biriktiriladi.</p>
+    <div class="table-scroll">
+      <table class="simple-table">
+        <tr><th>O'quvchi</th><th>Maktab / sinf</th><th>Test holati</th><th>Ro'yxat</th><th></th></tr>
+        {% for student in students %}
+        <tr>
+          <td>{{ student.fish }}</td>
+          <td>{{ student.viloyat or "" }} · {{ student.tuman or "" }} · {{ student.maktab or "Maktab ko'rsatilmagan" }} · {{ student.sinf }}-sinf</td>
+          <td>
+            {% if student.finished_count %}Ishlagan ({{ student.finished_count }} ta)
+            {% elif student.started_count %}Boshlagan, yakunlamagan
+            {% else %}Ishlamagan{% endif %}
+          </td>
+          <td>{% if student.is_active %}<span class="status-pill status-done">Faol</span>{% else %}<span class="status-pill status-pending">Chiqarilgan</span>{% endif %}</td>
+          <td>
+            {% if student.is_active %}
+            <form method="post" action="students/{{ student.id }}/deactivate" onsubmit="return confirm('O\\'quvchini faol ro\\'yxatdan chiqarasizmi?')">
+              <button class="small-action danger-action" type="submit">Ro'yxatdan chiqarish</button>
+            </form>
+            {% else %}
+            <form method="post" action="students/{{ student.id }}/activate">
+              <button class="small-action" type="submit">Qayta faollashtirish</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">O'quvchilar ro'yxati bo'sh.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
   </section>
 
   <section class="card">
@@ -93,11 +129,11 @@
     </form>
     <table class="simple-table">
       <tr><th>Fan</th><th>Test import qilish (.docx / .txt)</th></tr>
-      {% for s in subjects %}
+      {% for s in subject_question_counts %}
       <tr>
-        <td>{{ s.name }}</td>
+        <td><a href="subjects/{{ s.id }}/questions"><strong>{{ s.name }}</strong></a><br><span class="muted">{{ s.question_count }} ta savol</span></td>
         <td>
-          <form method="post" action="subjects/{{ s.id }}/import-questions" enctype="multipart/form-data">
+          <form method="post" action="subjects/{{ s.id }}/import-questions" enctype="multipart/form-data" class="inline-import-form">
             <input type="file" name="file" accept=".docx,.txt" required>
             <button type="submit">Import</button>
           </form>
@@ -106,11 +142,12 @@
       {% endfor %}
     </table>
     <p class="muted">Format: savol <code>#</code> bilan, variantlar <code>-</code> bilan boshlanadi,
-       to'g'ri variant oldiga <code>*</code> qo'yiladi. Masalan:<br>
+       har bir savolda 4 ta variant bo'lishi, to'g'ri variant oldiga <code>*</code> qo'yilishi kerak. Masalan:<br>
        <code># Toshkent qachon poytaxt bo'ldi?</code><br>
        <code>- 1917</code><br>
        <code>*- 1930</code><br>
-       <code>- 1941</code></p>
+       <code>- 1941</code><br>
+       <code>- 1961</code></p>
   </section>
 
   <section class="card">

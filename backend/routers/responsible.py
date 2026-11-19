@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 from ..database import get_conn
 from ..exam import export_class_results_to_excel
 from ..security import verify_password
+from ..signers import SIGNER_ROLES
 
 router = APIRouter()
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "responsible"
@@ -144,7 +145,7 @@ def dashboard(request: Request):
                 AND cs.sinf = st.sinf
             LEFT JOIN responsible_checks AS rc
                 ON rc.responsible_user_id = ? AND rc.sinf = st.sinf
-            WHERE st.school_location_id = ?
+            WHERE st.school_location_id = ? AND st.is_active = 1
             GROUP BY st.sinf, cs.class_teacher_name, rc.checked_at
             ORDER BY st.sinf
             """,
@@ -174,7 +175,12 @@ def dashboard(request: Request):
 
 
 @router.get("/classes/{sinf}", response_class=HTMLResponse)
-def class_results(request: Request, sinf: int):
+def class_results(
+    request: Request,
+    sinf: int,
+    chorak: int | None = None,
+    blok: int | None = None,
+):
     responsible = _require_responsible(request)
     if isinstance(responsible, RedirectResponse):
         return responsible
@@ -190,6 +196,48 @@ def class_results(request: Request, sinf: int):
             """,
             (responsible["location_id"], sinf),
         ).fetchone()
+        class_options = conn.execute(
+            """
+            SELECT DISTINCT sinf FROM students
+            WHERE school_location_id = ? AND is_active = 1
+            ORDER BY sinf
+            """,
+            (responsible["location_id"],),
+        ).fetchall()
+        blocks = conn.execute(
+            """
+            SELECT b.id, b.chorak, b.blok, b.test_creator_name,
+                b.subject1_id, b.subject2_id, b.subject3_id,
+                s1.name AS subject1_name, s2.name AS subject2_name,
+                s3.name AS subject3_name
+            FROM blocks AS b
+            LEFT JOIN subjects AS s1 ON s1.id = b.subject1_id
+            LEFT JOIN subjects AS s2 ON s2.id = b.subject2_id
+            LEFT JOIN subjects AS s3 ON s3.id = b.subject3_id
+            WHERE b.sinf = ?
+            ORDER BY b.chorak, b.blok
+            """,
+            (sinf,),
+        ).fetchall()
+        selected_block = next(
+            (
+                item for item in blocks
+                if item["chorak"] == chorak and item["blok"] == blok
+            ),
+            None,
+        )
+        if not selected_block and blocks and chorak is None and blok is None:
+            selected_block = blocks[-1]
+        if not selected_block and chorak is not None and blok is not None:
+            selected_block = next(
+                (
+                    item for item in blocks
+                    if item["chorak"] == chorak and item["blok"] == blok
+                ),
+                None,
+            )
+
+        selected_block_id = selected_block["id"] if selected_block else None
         records = conn.execute(
             """
             SELECT
@@ -197,28 +245,18 @@ def class_results(request: Request, sinf: int):
                 st.fish,
                 sess.id AS session_id,
                 sess.finished_at,
-                b.chorak,
-                b.blok,
-                b.test_creator_name,
                 COUNT(sq.id) AS total_questions,
                 COALESCE(SUM(sq.is_correct), 0) AS total_correct
             FROM students AS st
             LEFT JOIN sessions AS sess
                 ON sess.student_id = st.id AND sess.status = 'finished'
-            LEFT JOIN blocks AS b ON b.id = sess.block_id
+                AND sess.block_id = ?
             LEFT JOIN session_questions AS sq ON sq.session_id = sess.id
-            WHERE st.school_location_id = ? AND st.sinf = ?
-            GROUP BY
-                st.id,
-                st.fish,
-                sess.id,
-                sess.finished_at,
-                b.chorak,
-                b.blok,
-                b.test_creator_name
-            ORDER BY st.fish, sess.finished_at
+            WHERE st.school_location_id = ? AND st.sinf = ? AND st.is_active = 1
+            GROUP BY st.id, st.fish, sess.id, sess.finished_at
+            ORDER BY st.fish
             """,
-            (responsible["location_id"], sinf),
+            (selected_block_id, responsible["location_id"], sinf),
         ).fetchall()
         check = conn.execute(
             """
@@ -228,11 +266,41 @@ def class_results(request: Request, sinf: int):
             (responsible["id"], sinf),
         ).fetchone()
 
+        report_subjects = [
+            {
+                "name": selected_block[name_key],
+                "subject_id": selected_block[id_key],
+                "cells": [
+                    {"position": position, "correct": 0, "total": 0}
+                    for position in range(1, 16)
+                ],
+                "correct": 0,
+                "total": 0,
+            }
+            for name_key, id_key in (
+                ("subject1_name", "subject1_id"),
+                ("subject2_name", "subject2_id"),
+                ("subject3_name", "subject3_id"),
+            )
+            if selected_block and selected_block[name_key]
+        ]
         result_rows = []
         latest_result_at = None
         for row in records:
             item = dict(row)
-            item["subjects"] = []
+            item["subjects"] = [
+                {
+                    "name": subject["name"],
+                    "cells": [
+                        {"position": cell["position"], "is_correct": None}
+                        for cell in report_subjects[index]["cells"]
+                    ],
+                    "correct": 0,
+                    "total": 0,
+                    "percent": 0,
+                }
+                for index, subject in enumerate(report_subjects)
+            ]
             if item["session_id"]:
                 latest_result_at = max(
                     latest_result_at or item["finished_at"],
@@ -241,34 +309,71 @@ def class_results(request: Request, sinf: int):
                 subjects = conn.execute(
                     """
                     SELECT
-                        sub.name,
-                        COUNT(*) AS total,
-                        COALESCE(SUM(sq.is_correct), 0) AS correct
+                        sq.subject_id, sub.name, sq.position_in_subject,
+                        sq.is_correct, sq.selected_option
                     FROM session_questions AS sq
                     JOIN subjects AS sub ON sub.id = sq.subject_id
                     WHERE sq.session_id = ?
-                    GROUP BY sq.subject_id, sub.name
-                    ORDER BY MIN(sq.id)
+                    ORDER BY sq.id
                     """,
                     (item["session_id"],),
                 ).fetchall()
-                item["subjects"] = [
-                    {
-                        "name": subject["name"],
-                        "total": subject["total"],
-                        "correct": subject["correct"],
-                        "percent": round(
-                            subject["correct"] / subject["total"] * 100
-                        )
-                        if subject["total"]
-                        else 0,
-                    }
-                    for subject in subjects
-                ]
+                subjects_by_id = {
+                    subject["subject_id"]: index
+                    for index, subject in enumerate(report_subjects)
+                }
+                for question in subjects:
+                    subject_index = subjects_by_id[question["subject_id"]]
+                    position = question["position_in_subject"] - 1
+                    item["subjects"][subject_index]["cells"][position][
+                        "is_correct"
+                    ] = bool(question["is_correct"])
+                    item["subjects"][subject_index]["correct"] += int(
+                        bool(question["is_correct"])
+                    )
+                    item["subjects"][subject_index]["total"] += 1
+                    report_subjects[subject_index]["cells"][position][
+                        "correct"
+                    ] += int(bool(question["is_correct"]))
+                    report_subjects[subject_index]["cells"][position][
+                        "total"
+                    ] += 1
+                    report_subjects[subject_index]["correct"] += int(
+                        bool(question["is_correct"])
+                    )
+                    report_subjects[subject_index]["total"] += 1
+                for subject in item["subjects"]:
+                    subject["percent"] = round(
+                        subject["correct"] / subject["total"] * 100
+                    ) if subject["total"] else 0
                 item["score"] = round(
                     item["total_correct"] / item["total_questions"] * 100
                 ) if item["total_questions"] else 0
             result_rows.append(item)
+
+        for subject in report_subjects:
+            subject["percent"] = round(
+                subject["correct"] / subject["total"] * 100
+            ) if subject["total"] else 0
+            subject["question_percentages"] = [
+                round(cell["correct"] / cell["total"] * 100)
+                if cell["total"] else 0
+                for cell in subject["cells"]
+            ]
+        completed_rows = [item for item in result_rows if item["session_id"]]
+        average_score = round(
+            sum(item["score"] for item in completed_rows) / len(completed_rows)
+        ) if completed_rows else 0
+        top_students = sorted(
+            completed_rows,
+            key=lambda item: (-item["score"], item["fish"]),
+        )[:10]
+        signer_names = {
+            row["role"]: row["full_name"]
+            for row in conn.execute(
+                "SELECT role, full_name FROM monitoring_signers"
+            ).fetchall()
+        }
     finally:
         conn.close()
 
@@ -283,10 +388,20 @@ def class_results(request: Request, sinf: int):
             "request": request,
             "responsible": responsible,
             "sinf": sinf,
+            "class_options": class_options,
             "class_teacher": (
                 class_setting["class_teacher_name"] if class_setting else ""
             ),
             "results": result_rows,
+            "blocks": blocks,
+            "selected_block": selected_block,
+            "report_subjects": report_subjects,
+            "attended_count": len(completed_rows),
+            "not_attended_count": len(result_rows) - len(completed_rows),
+            "average_score": average_score,
+            "top_students": top_students,
+            "signer_roles": SIGNER_ROLES,
+            "signer_names": signer_names,
             "checked_at": checked_at,
             "is_checked": is_checked,
             "needs_review": needs_review,
@@ -295,7 +410,12 @@ def class_results(request: Request, sinf: int):
 
 
 @router.post("/classes/{sinf}/check")
-def mark_class_checked(request: Request, sinf: int):
+def mark_class_checked(
+    request: Request,
+    sinf: int,
+    chorak: int | None = Form(None),
+    blok: int | None = Form(None),
+):
     responsible = _require_responsible(request)
     if isinstance(responsible, RedirectResponse):
         return responsible
@@ -307,7 +427,7 @@ def mark_class_checked(request: Request, sinf: int):
         student = conn.execute(
             """
             SELECT 1 FROM students
-            WHERE school_location_id = ? AND sinf = ?
+            WHERE school_location_id = ? AND sinf = ? AND is_active = 1
             LIMIT 1
             """,
             (responsible["location_id"], sinf),
@@ -331,10 +451,10 @@ def mark_class_checked(request: Request, sinf: int):
         conn.commit()
     finally:
         conn.close()
-    return RedirectResponse(
-        f"/responsible/classes/{sinf}",
-        status_code=303,
-    )
+    redirect_url = f"/responsible/classes/{sinf}"
+    if chorak is not None and blok is not None:
+        redirect_url += f"?chorak={chorak}&blok={blok}"
+    return RedirectResponse(redirect_url, status_code=303)
 
 
 @router.get("/classes/{sinf}/export")
@@ -361,6 +481,7 @@ def export_class(request: Request, sinf: int):
             JOIN students AS st ON st.id = sess.student_id
             WHERE st.school_location_id = ?
                 AND st.sinf = ?
+                AND st.is_active = 1
                 AND sess.status = 'finished'
             """,
             (responsible["location_id"], sinf),
@@ -368,7 +489,7 @@ def export_class(request: Request, sinf: int):
         student = conn.execute(
             """
             SELECT 1 FROM students
-            WHERE school_location_id = ? AND sinf = ?
+            WHERE school_location_id = ? AND sinf = ? AND is_active = 1
             LIMIT 1
             """,
             (responsible["location_id"], sinf),

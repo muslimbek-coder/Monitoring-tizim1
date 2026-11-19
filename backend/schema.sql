@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS students (
     sinf INTEGER NOT NULL,
     fish TEXT NOT NULL,
     school_location_id INTEGER REFERENCES school_locations(id),
+    is_active INTEGER NOT NULL DEFAULT 1,
     UNIQUE(sinf, fish, school_location_id)
 );
 

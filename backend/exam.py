@@ -40,7 +40,7 @@ def start_session(student_id: int, block_id: int) -> int:
     conn = get_conn()
     try:
         student = conn.execute(
-            "SELECT sinf FROM students WHERE id = ?",
+            "SELECT sinf FROM students WHERE id = ? AND is_active = 1",
             (student_id,),
         ).fetchone()
         block = conn.execute(
@@ -64,6 +64,10 @@ def start_session(student_id: int, block_id: int) -> int:
                 """
                 SELECT id FROM questions
                 WHERE subject_id = ?
+                    AND option_a IS NOT NULL AND TRIM(option_a) != ''
+                    AND option_b IS NOT NULL AND TRIM(option_b) != ''
+                    AND option_c IS NOT NULL AND TRIM(option_c) != ''
+                    AND option_d IS NOT NULL AND TRIM(option_d) != ''
                 ORDER BY RANDOM()
                 LIMIT ?
                 """,
@@ -71,7 +75,8 @@ def start_session(student_id: int, block_id: int) -> int:
             ).fetchall()
             if len(questions) < QUESTIONS_PER_SUBJECT:
                 raise ValueError(
-                    "Har bir fan uchun kamida 15 ta test savoli bo'lishi kerak."
+                    "Har bir fan uchun 4 ta varianti to'liq bo'lgan kamida "
+                    "15 ta test savoli bo'lishi kerak."
                 )
             questions_by_subject.append((subject_id, questions))
 
@@ -488,7 +493,7 @@ def export_class_results_to_excel(location_id: int, sinf: int) -> bytes:
                 ON sess.student_id = st.id AND sess.status = 'finished'
             LEFT JOIN blocks AS b ON b.id = sess.block_id
             LEFT JOIN session_questions AS sq ON sq.session_id = sess.id
-            WHERE st.school_location_id = ? AND st.sinf = ?
+            WHERE st.school_location_id = ? AND st.sinf = ? AND st.is_active = 1
             GROUP BY
                 st.id,
                 st.fish,

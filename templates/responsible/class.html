@@ -20,49 +20,193 @@
       <p>{% if class_teacher %}Sinf rahbari: <strong>{{ class_teacher }}</strong>{% else %}Sinf rahbari kiritilmagan{% endif %}</p>
     </section>
 
+    <section class="results-panel report-filter-panel">
+      <h2>Natijalar tahlili</h2>
+      {% if blocks %}
+      <form class="report-filters" method="get" action="/responsible/classes/{{ sinf }}">
+        <label>Sinf
+          <select id="report-class">
+            {% for class_option in class_options %}
+            <option value="{{ class_option.sinf }}" {% if class_option.sinf == sinf %}selected{% endif %}>{{ class_option.sinf }}-sinf</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Chorak
+          <select id="report-quarter" name="chorak">
+            {% for quarter in blocks|map(attribute='chorak')|unique|sort %}
+            <option value="{{ quarter }}" {% if selected_block and selected_block.chorak == quarter %}selected{% endif %}>{{ quarter }}-chorak</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Blok
+          <select id="report-block" name="blok">
+            {% for block in blocks %}
+            <option value="{{ block.blok }}" data-quarter="{{ block.chorak }}" {% if selected_block and selected_block.id == block.id %}selected{% endif %}>
+              {{ block.blok }}-blok · {{ block.subject1_name }}, {{ block.subject2_name }}, {{ block.subject3_name }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+      {% else %}
+      <p class="empty-state">Bu sinf uchun test bloki hali tuzilmagan.</p>
+      {% endif %}
+    </section>
+
+    {% if selected_block %}
     <section class="results-panel">
       <div class="results-panel-heading">
-        <div><h2>O'quvchilar va test natijalari</h2><p class="muted">Natijalar faqat siz biriktirilgan maktab bo'yicha ko'rsatiladi.</p></div>
-        <span class="class-count">{{ results|length }} ta yozuv</span>
+        <div>
+          <h2>{{ sinf }}-sinf · {{ selected_block.chorak }}-chorak · {{ selected_block.blok }}-blok</h2>
+          <p class="muted">Test tuzuvchisi: {{ selected_block.test_creator_name or "—" }}</p>
+        </div>
+        <a class="download-link" href="/responsible/classes/{{ sinf }}/export">Excelga yuklab olish <span aria-hidden="true">↓</span></a>
       </div>
-      <div class="table-scroll">
-        <table class="simple-table results-table">
+      <div class="report-stat-grid">
+        <article><strong>{{ sinf }}</strong><span>SINF</span></article>
+        <article><strong>{{ results|length }}</strong><span>JAMI O'QUVCHILAR</span></article>
+        <article><strong>{{ attended_count }}</strong><span>QATNASHDI</span></article>
+        <article><strong>{{ not_attended_count }}</strong><span>QATNASHMADI</span></article>
+        <article><strong>{{ average_score }}%</strong><span>O'RTACHA BALL</span></article>
+      </div>
+
+      <div class="table-scroll report-matrix-scroll">
+        <table class="simple-table report-matrix">
           <thead>
-            <tr><th>O'quvchi</th><th>Test</th><th>Test tuzuvchisi</th><th>Fanlar</th><th>Umumiy natija</th><th>Topshirilgan vaqt</th></tr>
+            <tr>
+              <th rowspan="2" class="student-name-cell">№</th>
+              <th rowspan="2" class="student-name-cell">O'quvchi F.I.Sh</th>
+              {% for subject in report_subjects %}<th colspan="17">{{ subject.name }}</th>{% endfor %}
+              <th colspan="4">Umumiy natija</th>
+            </tr>
+            <tr>
+              {% for subject in report_subjects %}
+                {% for cell in subject.cells %}<th>{{ cell.position }}</th>{% endfor %}
+                <th>To'g'ri</th><th>Ball</th>
+              {% endfor %}
+              <th>To'g'ri</th><th>Jami</th><th>Ball</th><th>Topshirdi</th>
+            </tr>
           </thead>
           <tbody>
             {% for row in results %}
             <tr>
-              <td><strong>{{ row.fish }}</strong></td>
-              {% if row.session_id %}
-              <td>{{ row.chorak }}-chorak · {{ row.blok }}-blok</td>
-              <td>{{ row.test_creator_name or "—" }}</td>
-              <td>{% for subject in row.subjects %}<div>{{ subject.name }}: {{ subject.correct }}/{{ subject.total }} ({{ subject.percent }}%)</div>{% endfor %}</td>
-              <td><strong>{{ row.total_correct }}/{{ row.total_questions }}</strong><br><span class="muted">{{ row.score }}%</span></td>
-              <td>{{ row.finished_at }}</td>
-              {% else %}
-              <td colspan="5"><span class="muted">Hozircha tugatilgan test natijasi yo'q.</span></td>
-              {% endif %}
+              <td>{{ loop.index }}</td>
+              <td class="student-name-cell">{{ row.fish }}</td>
+              {% for subject in row.subjects %}
+                {% for cell in subject.cells %}
+                <td class="answer-cell {% if cell.is_correct is sameas true %}answer-correct{% elif cell.is_correct is sameas false %}answer-wrong{% else %}answer-empty{% endif %}">
+                  {% if cell.is_correct is sameas true %}1{% elif cell.is_correct is sameas false %}0{% else %}—{% endif %}
+                </td>
+                {% endfor %}
+                <td class="score-cell">{{ subject.correct }}/{{ subject.total }}</td>
+                <td class="score-cell">{{ subject.percent }}%</td>
+              {% endfor %}
+              <td class="score-cell">{{ row.total_correct }}</td>
+              <td class="score-cell">{{ row.total_questions }}</td>
+              <td class="score-cell">{% if row.session_id %}{{ row.score }}%{% else %}—{% endif %}</td>
+              <td class="score-cell">{% if row.session_id %}Ha{% else %}Yo'q{% endif %}</td>
             </tr>
             {% else %}
-            <tr><td colspan="6" class="muted">Bu sinfda o'quvchilar ro'yxati yo'q.</td></tr>
+            <tr><td colspan="100" class="muted">Bu sinfda faol o'quvchilar ro'yxati yo'q.</td></tr>
+            {% endfor %}
+          </tbody>
+          {% if results %}
+          <tfoot>
+            <tr>
+              <td colspan="2">To'g'ri javob, %</td>
+              {% for subject in report_subjects %}
+                {% for percent in subject.question_percentages %}<td>{{ percent }}</td>{% endfor %}
+                <td>{{ subject.correct }}</td><td>{{ subject.percent }}%</td>
+              {% endfor %}
+              <td colspan="4">{{ average_score }}% o'rtacha</td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </section>
+
+    <section class="results-panel report-summary">
+      <h2>Fanlar bo'yicha jamlanma</h2>
+      <div class="table-scroll">
+        <table class="simple-table">
+          <thead><tr><th>Fan</th><th>O'rtacha to'g'ri javob</th><th>To'g'ri javoblar yig'indisi</th><th>Umumiy ko'rsatkich</th><th>Qatnashganlar</th></tr></thead>
+          <tbody>
+            {% for subject in report_subjects %}
+            <tr>
+              <td>{{ subject.name }}</td>
+              <td>{{ (subject.correct / attended_count)|round(1) if attended_count else 0 }} / 15</td>
+              <td>{{ subject.correct }}</td>
+              <td>{{ subject.percent }}%</td>
+              <td>{{ attended_count }}</td>
+            </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-
-      <div class="review-actions">
-        {% if is_checked %}
-        <p class="review-confirmation">✓ Natijalar tekshirildi{% if checked_at %} · {{ checked_at }}{% endif %}</p>
-        <a class="download-link" href="/responsible/classes/{{ sinf }}/export">Excel faylini yuklab olish <span aria-hidden="true">↓</span></a>
-        {% else %}
-        {% if needs_review %}<p class="review-reminder">Yangi test natijalari qo'shilgan. Excel yuklab olishdan oldin qayta tekshiring.</p>{% endif %}
-        <form method="post" action="/responsible/classes/{{ sinf }}/check">
-          <button type="submit" class="review-button">Tekshirildi deb belgilash</button>
-        </form>
-        {% endif %}
-      </div>
+      <h3>Eng yuqori natijalar</h3>
+      <p class="top-students">{% for student in top_students %}<span>{{ loop.index }}. {{ student.fish }} <strong>{{ student.score }}%</strong></span>{% else %}<span class="muted">Hozircha topshirgan o'quvchi yo'q.</span>{% endfor %}</p>
     </section>
+    {% endif %}
+
+    {% if signer_roles %}
+    <section class="results-panel signer-panel">
+      <h2>Monitoring komissiyasi — {{ responsible.maktab }}</h2>
+      <table class="simple-table">
+        <thead><tr><th>Lavozim</th><th>F.I.Sh</th><th>Imzo</th></tr></thead>
+        <tbody>
+          {% for role, title in signer_roles %}
+          <tr><td>{{ title }}</td><td>{{ signer_names.get(role, "") or "________________________" }}</td><td>________________</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    {% if selected_block %}
+    <section class="review-actions results-panel">
+      {% if is_checked %}
+      <p class="review-confirmation">✓ Natijalar tekshirildi{% if checked_at %} · {{ checked_at }}{% endif %}</p>
+      {% else %}
+      {% if needs_review %}<p class="review-reminder">Yangi test natijalari qo'shilgan. Qayta tekshirib, so'ng tasdiqlang.</p>{% endif %}
+      <form method="post" action="/responsible/classes/{{ sinf }}/check">
+        <input type="hidden" name="chorak" value="{{ selected_block.chorak }}">
+        <input type="hidden" name="blok" value="{{ selected_block.blok }}">
+        <button type="submit" class="review-button">Tekshirildi deb belgilash</button>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
   </main>
+  <script>
+    const quarter = document.getElementById("report-quarter");
+    const block = document.getElementById("report-block");
+    const classSelect = document.getElementById("report-class");
+    if (classSelect) {
+      classSelect.addEventListener("change", () => {
+        window.location.href = `/responsible/classes/${classSelect.value}`;
+      });
+    }
+    if (quarter && block) {
+      const filterBlocks = () => {
+        const matching = Array.from(block.options).filter(
+          (option) => option.dataset.quarter === quarter.value
+        );
+        matching.forEach((option) => { option.hidden = false; });
+        Array.from(block.options).filter(
+          (option) => option.dataset.quarter !== quarter.value
+        ).forEach((option) => { option.hidden = true; });
+        if (matching.length && !matching.some((option) => option.selected)) {
+          block.value = matching[0].value;
+        }
+      };
+      filterBlocks();
+      quarter.addEventListener("change", () => {
+        filterBlocks();
+        block.form.requestSubmit();
+      });
+      block.addEventListener("change", () => block.form.requestSubmit());
+    }
+  </script>
 </body>
 </html>

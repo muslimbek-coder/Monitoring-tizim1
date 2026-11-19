@@ -61,7 +61,7 @@ def import_students_from_excel(
                 updated = conn.execute(
                     """
                     UPDATE students
-                    SET school_location_id = ?
+                    SET school_location_id = ?, is_active = 1
                     WHERE sinf = ? AND fish = ? AND school_location_id IS NULL
                     """,
                     (school_location_id, sinf, fish),
@@ -80,7 +80,18 @@ def import_students_from_excel(
                 )
                 added += 1
             except sqlite3.IntegrityError:
-                skipped += 1
+                restored = conn.execute(
+                    """
+                    UPDATE students SET is_active = 1
+                    WHERE sinf = ? AND fish = ? AND school_location_id IS ?
+                        AND is_active = 0
+                    """,
+                    (sinf, fish, school_location_id),
+                )
+                if restored.rowcount:
+                    added += 1
+                else:
+                    skipped += 1
         conn.commit()
     finally:
         conn.close()
@@ -123,6 +134,10 @@ def extract_text_from_upload(filename: str, file_bytes: bytes) -> str:
 def import_questions_for_subject(subject_id: int, filename: str, file_bytes: bytes) -> dict:
     raw_text = extract_text_from_upload(filename, file_bytes)
     parsed = _parse_question_blocks(raw_text)
+    if any(len(question.options) != 4 for question in parsed):
+        raise ValueError(
+            "Har bir savolda aynan 4 ta javob varianti bo'lishi kerak."
+        )
 
     conn = get_conn()
     added = 0

@@ -54,7 +54,7 @@ def select_class(
         students = conn.execute(
             """
             SELECT id, fish FROM students
-            WHERE sinf = ? AND school_location_id = ?
+            WHERE sinf = ? AND school_location_id = ? AND is_active = 1
             ORDER BY fish
             """,
             (sinf, location_id),
@@ -93,7 +93,7 @@ def start_code_prompt(
         student = conn.execute(
             """
             SELECT id FROM students
-            WHERE id = ? AND sinf = ? AND school_location_id = ?
+            WHERE id = ? AND sinf = ? AND school_location_id = ? AND is_active = 1
             """,
             (student_id, sinf, location_id),
         ).fetchone()
@@ -137,7 +137,7 @@ def begin_exam(
         student = conn.execute(
             """
             SELECT id FROM students
-            WHERE id = ? AND sinf = ? AND school_location_id = ?
+            WHERE id = ? AND sinf = ? AND school_location_id = ? AND is_active = 1
             """,
             (student_id, sinf, location_id),
         ).fetchone()

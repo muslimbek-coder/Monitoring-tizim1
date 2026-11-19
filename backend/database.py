@@ -68,15 +68,19 @@ def init_db() -> None:
                         fish TEXT NOT NULL,
                         school_location_id INTEGER
                             REFERENCES school_locations(id),
+                        is_active INTEGER NOT NULL DEFAULT 1,
                         UNIQUE(sinf, fish, school_location_id)
                     )
                     """
                 )
+                active_column = (
+                    "is_active" if "is_active" in columns else "1"
+                )
                 conn.execute(
                     f"""
                     INSERT INTO students_new
-                        (id, sinf, fish, school_location_id)
-                    SELECT id, sinf, fish, {location_column}
+                        (id, sinf, fish, school_location_id, is_active)
+                    SELECT id, sinf, fish, {location_column}, {active_column}
                     FROM students
                     """
                 )
@@ -90,6 +94,16 @@ def init_db() -> None:
                 raise
             finally:
                 conn.execute("PRAGMA foreign_keys = ON")
+
+        student_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(students)").fetchall()
+        }
+        if "is_active" not in student_columns:
+            conn.execute(
+                "ALTER TABLE students ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+            )
+            conn.commit()
 
         block_columns = {
             row["name"]
